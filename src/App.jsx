@@ -54,6 +54,27 @@ export default function App() {
   const [selectedPlates, setSelectedPlates] = useState([]);
   const [syncing, setSyncing] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [authed, setAuthed] = useState(() => !!sessionStorage.getItem("canaven_role"));
+  const [role, setRole] = useState(() => sessionStorage.getItem("canaven_role") || "");
+  const [pinInput, setPinInput] = useState("");
+  const [pinError, setPinError] = useState(false);
+
+  const PIN_ADMIN = "2025";    // Admin: puede editar todo
+  const PIN_VIEWER = "1111";   // Visitante: solo lectura
+
+  const isAdmin = role === "admin";
+
+  const handleLogin = () => {
+    if (pinInput === PIN_ADMIN) {
+      sessionStorage.setItem("canaven_role", "admin");
+      setRole("admin"); setAuthed(true); setPinError(false);
+    } else if (pinInput === PIN_VIEWER) {
+      sessionStorage.setItem("canaven_role", "viewer");
+      setRole("viewer"); setAuthed(true); setPinError(false);
+    } else {
+      setPinError(true); setPinInput("");
+    }
+  };
 
   // ── Load from Firestore on mount ──
   useEffect(() => {
@@ -113,7 +134,7 @@ export default function App() {
     if (!selectedPlates.length) return;
     const existing = schedules[selectedDate] || [];
     const toAdd = selectedPlates.filter(plate => !existing.find(e => e.plate === plate))
-      .map(plate => ({ plate, loaded: false, loadedTime: null, trips: 0, lastLoaded: "" }));
+      .map(plate => ({ plate, loaded: false, loadedTime: null, observaciones: "" }));
     updateSchedules({ ...schedules, [selectedDate]: [...existing, ...toAdd] });
     setSelectedPlates([]);
   };
@@ -128,19 +149,11 @@ export default function App() {
     updateSchedules({ ...schedules, [selectedDate]: day });
   };
 
-  const updateTrips = (plate, delta) => {
+  const updateObservaciones = (plate, value) => {
     const day = [...(schedules[selectedDate] || [])];
     const idx = day.findIndex(v => v.plate === plate);
     if (idx === -1) return;
-    day[idx] = { ...day[idx], trips: Math.max(0, (day[idx].trips || 0) + delta) };
-    updateSchedules({ ...schedules, [selectedDate]: day });
-  };
-
-  const updateLastLoaded = (plate, value) => {
-    const day = [...(schedules[selectedDate] || [])];
-    const idx = day.findIndex(v => v.plate === plate);
-    if (idx === -1) return;
-    day[idx] = { ...day[idx], lastLoaded: value };
+    day[idx] = { ...day[idx], observaciones: value };
     updateSchedules({ ...schedules, [selectedDate]: day });
   };
 
@@ -151,11 +164,10 @@ export default function App() {
     const lines = [`🚛 *CANAVEN - Programación Vehicular*`, `📅 ${dateLabel}`, ``, `*Vehículos Programados:*`];
     scheduleForDate.forEach((v, i) => {
       const status = v.loaded ? `✅ Cargado${v.loadedTime ? " · " + v.loadedTime : ""}` : "⏳ Pendiente";
-      const tripsStr = v.trips > 0 ? ` · ${v.trips} viaje${v.trips !== 1 ? "s" : ""}` : "";
-      const last = v.lastLoaded ? ` · Último: *${v.lastLoaded.toUpperCase()}*` : "";
-      lines.push(`${i + 1}. *${v.plate}* — ${status}${tripsStr}${last}`);
+      const obs = v.observaciones ? ` · 📝 ${v.observaciones}` : "";
+      lines.push(`${i + 1}. *${v.plate}* — ${status}${obs}`);
     });
-    lines.push(``, `📋 Total: ${scheduleForDate.length} · ✅ Cargados: ${scheduleForDate.filter(v => v.loaded).length} · 🚛 Viajes: ${scheduleForDate.reduce((s, v) => s + (v.trips || 0), 0)}`);
+    lines.push(``, `📋 Total: ${scheduleForDate.length} · ✅ Cargados: ${scheduleForDate.filter(v => v.loaded).length}`);
     return lines.join("\n");
   };
   const copyMessage = () => navigator.clipboard.writeText(buildWhatsAppText()).catch(() => {});
@@ -163,7 +175,7 @@ export default function App() {
 
   // CSV Export
   const downloadCSV = (rangeType) => {
-    const rows = [["Fecha","Dia","Placa","Estado","Hora Cargue","Viajes","Ultimo Producto"]];
+    const rows = [["Fecha","Dia","Placa","Estado","Hora Cargue","Observaciones"]];
     const allDates = Object.keys(schedules).sort();
     let filtered = allDates;
 
@@ -180,15 +192,14 @@ export default function App() {
       const d = new Date(date + "T12:00:00");
       const dayName = DAYS_ES[d.getDay()];
       (schedules[date] || []).forEach(v => {
-        if (v.trips > 0 || v.loaded) {
+        if (v.loaded) {
           rows.push([
             date,
             dayName,
             v.plate,
             v.loaded ? "Cargado" : "Pendiente",
             v.loadedTime || "",
-            v.trips || 0,
-            v.lastLoaded || ""
+            v.observaciones || ""
           ]);
         }
       });
@@ -210,7 +221,7 @@ export default function App() {
   const weeklyData = useMemo(() => weekDates.map(date => {
     const ds = schedules[date] || [];
     const d = new Date(date + "T12:00:00");
-    return { name: DAYS_ES[d.getDay()], programados: ds.length, cargados: ds.filter(v => v.loaded).length, viajes: ds.reduce((s, v) => s + (v.trips || 0), 0) };
+    return { name: DAYS_ES[d.getDay()], programados: ds.length, cargados: ds.filter(v => v.loaded).length };
   }), [schedules, weekDates]);
 
   const currentMonth = new Date(selectedDate + "T12:00:00").getMonth();
@@ -220,19 +231,19 @@ export default function App() {
     Object.entries(schedules).forEach(([date, ds]) => {
       const d = new Date(date + "T12:00:00");
       if (d.getMonth() === currentMonth && d.getFullYear() === currentYear)
-        byDay[d.getDate()] = { name: `${d.getDate()}`, programados: ds.length, cargados: ds.filter(v => v.loaded).length, viajes: ds.reduce((s, v) => s + (v.trips || 0), 0) };
+        byDay[d.getDate()] = { name: `${d.getDate()}`, programados: ds.length, cargados: ds.filter(v => v.loaded).length };
     });
     return Object.values(byDay).sort((a, b) => parseInt(a.name) - parseInt(b.name));
   }, [schedules, currentMonth, currentYear]);
 
   const vehicleTotals = useMemo(() => {
     const totals = {};
-    vehicles.forEach(v => { totals[v.plate] = { scheduled: 0, loaded: 0, trips: 0 }; });
+    vehicles.forEach(v => { totals[v.plate] = { scheduled: 0, loaded: 0 }; });
     Object.values(schedules).forEach(ds => ds.forEach(v => {
-      if (!totals[v.plate]) totals[v.plate] = { scheduled: 0, loaded: 0, trips: 0 };
+      if (!totals[v.plate]) totals[v.plate] = { scheduled: 0, loaded: 0 };
       totals[v.plate].scheduled++;
       if (v.loaded) totals[v.plate].loaded++;
-      totals[v.plate].trips += (v.trips || 0);
+
     }));
     return totals;
   }, [schedules, vehicles]);
@@ -254,6 +265,56 @@ export default function App() {
     </div>
   );
 
+  if (!authed) return (
+    <div style={{ minHeight:"100vh", background:C.bg, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"24px" }}>
+      <style>{`@keyframes shake { 0%,100%{transform:translateX(0)} 20%,60%{transform:translateX(-8px)} 40%,80%{transform:translateX(8px)} } .shake{animation:shake 0.4s ease;}`}</style>
+      <div style={{ width:"100%", maxWidth:320 }}>
+        {/* Logo */}
+        <div style={{ display:"flex", justifyContent:"center", marginBottom:32 }}>
+          <CanavenLogo />
+        </div>
+        {/* Card */}
+        <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:20, padding:"32px 24px", textAlign:"center" }}>
+          <div style={{ fontSize:44, marginBottom:12 }}>🔒</div>
+          <div style={{ fontSize:18, fontWeight:800, color:C.text, marginBottom:6 }}>Acceso Protegido</div>
+          <div style={{ fontSize:13, color:C.muted, marginBottom:8 }}>Ingresa tu PIN para continuar</div>
+          <div style={{ display:"flex", gap:8, justifyContent:"center", marginBottom:24 }}>
+            <span style={{ background:C.blue+"22", color:C.blue, border:`1px solid ${C.blue}44`, borderRadius:20, padding:"3px 10px", fontSize:11, fontWeight:700 }}>⚙️ Admin</span>
+            <span style={{ background:C.green+"22", color:C.green, border:`1px solid ${C.green}44`, borderRadius:20, padding:"3px 10px", fontSize:11, fontWeight:700 }}>👁️ Visitante</span>
+          </div>
+          {/* PIN dots display */}
+          <div style={{ display:"flex", justifyContent:"center", gap:12, marginBottom:24 }}>
+            {[0,1,2,3].map(i => (
+              <div key={i} style={{ width:14, height:14, borderRadius:"50%", background: pinInput.length > i ? C.blue : C.border, transition:"background 0.15s" }} />
+            ))}
+          </div>
+          {/* Keypad */}
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10, marginBottom:16 }}>
+            {["1","2","3","4","5","6","7","8","9","","0","⌫"].map((k, i) => (
+              <button key={i} onClick={() => {
+                if (k === "⌫") { setPinInput(p => p.slice(0,-1)); setPinError(false); }
+                else if (k === "") return;
+                else if (pinInput.length < 4) setPinInput(p => p + k);
+              }}
+                style={{ background: k===""?"transparent":pinError?C.red+"22":C.surface, border:`1px solid ${k===""?"transparent":pinError?C.red+"55":C.border}`, borderRadius:12, padding:"16px 0", fontSize:20, fontWeight:700, color: k==="⌫"?C.muted:C.text, cursor:k===""?"default":"pointer", transition:"all 0.15s" }}
+                disabled={k===""}>
+                {k}
+              </button>
+            ))}
+          </div>
+          {pinError && <div style={{ color:C.red, fontSize:13, fontWeight:600, marginBottom:12 }}>PIN incorrecto. Intenta de nuevo.</div>}
+          <button onClick={handleLogin} disabled={pinInput.length < 4}
+            style={{ width:"100%", background:pinInput.length===4?C.blue:C.border, color:pinInput.length===4?"#fff":C.muted, border:"none", borderRadius:12, padding:"14px 0", fontSize:16, fontWeight:700, cursor:pinInput.length===4?"pointer":"not-allowed", transition:"all 0.2s" }}>
+            Ingresar
+          </button>
+        </div>
+        <div style={{ textAlign:"center", marginTop:20, fontSize:11, color:C.muted }}>
+          CANAVEN Transportes de Colombia SAS
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <div style={{ minHeight:"100vh", background:C.bg, color:C.text, fontFamily:"'Segoe UI', Arial, sans-serif", paddingBottom:80 }}>
       <style>{`
@@ -269,10 +330,17 @@ export default function App() {
         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
           <CanavenLogo />
           <div style={{ textAlign:"right" }}>
+            <div style={{ display:"flex", gap:6, justifyContent:"flex-end", alignItems:"center", marginBottom:2 }}>
+              <span style={{ fontSize:9, color: isAdmin ? C.blue : C.green, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.08em" }}>
+                {isAdmin ? "⚙️ Admin" : "👁️ Visitante"}
+              </span>
+              <button onClick={()=>{ sessionStorage.removeItem("canaven_role"); setAuthed(false); setRole(""); setPinInput(""); }}
+                style={{ background:"transparent", border:`1px solid ${C.border}`, borderRadius:4, color:C.muted, fontSize:9, cursor:"pointer", padding:"1px 5px" }}>Salir</button>
+            </div>
             <div style={{ fontSize:9, color: syncing ? C.orange : C.green, letterSpacing:"0.1em", textTransform:"uppercase", fontWeight:700 }}>
               {syncing ? "⏳ Guardando..." : "☁️ Sincronizado"}
             </div>
-            <div style={{ fontSize:9, color:C.muted, marginTop:2 }}>
+            <div style={{ fontSize:9, color:C.muted, marginTop:1 }}>
               {(() => { const d = new Date(selectedDate+"T12:00:00"); return `${DAYS_ES[d.getDay()]} ${d.getDate()} ${MONTHS_ES[d.getMonth()]}`; })()}
             </div>
           </div>
@@ -288,13 +356,15 @@ export default function App() {
               <div style={{ fontSize:16, fontWeight:700, marginBottom:2 }}>Gestión de Flota</div>
               <div style={{ fontSize:12, color:C.muted }}>{vehicles.filter(v=>v.available).length} disponibles · {vehicles.filter(v=>!v.available).length} no disponibles</div>
             </div>
-            <div style={{ display:"flex", gap:8, marginBottom:14 }}>
-              <input value={newPlate} onChange={e=>setNewPlate(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addVehicle()}
-                placeholder="Nueva placa Ej: ABC123"
-                style={{ flex:1, background:C.card, border:`1px solid ${C.border}`, borderRadius:10, padding:"11px 14px", color:C.text, fontSize:14, outline:"none", textTransform:"uppercase" }} />
-              <button onClick={addVehicle} className="tap"
-                style={{ background:C.blue, color:"#fff", border:"none", borderRadius:10, padding:"11px 22px", fontSize:18, fontWeight:700, cursor:"pointer" }}>+</button>
-            </div>
+            {isAdmin && (
+              <div style={{ display:"flex", gap:8, marginBottom:14 }}>
+                <input value={newPlate} onChange={e=>setNewPlate(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addVehicle()}
+                  placeholder="Nueva placa Ej: ABC123"
+                  style={{ flex:1, background:C.card, border:`1px solid ${C.border}`, borderRadius:10, padding:"11px 14px", color:C.text, fontSize:14, outline:"none", textTransform:"uppercase" }} />
+                <button onClick={addVehicle} className="tap"
+                  style={{ background:C.blue, color:"#fff", border:"none", borderRadius:10, padding:"11px 22px", fontSize:18, fontWeight:700, cursor:"pointer" }}>+</button>
+              </div>
+            )}
             <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
               {vehicles.map((v, idx) => {
                 const tot = vehicleTotals[v.plate] || {};
@@ -306,16 +376,23 @@ export default function App() {
                         <span style={{ fontSize:11, color:C.muted, fontWeight:700, minWidth:20 }}>{idx+1}</span>
                         <span style={{ fontSize:17, fontWeight:900, color:C.text, letterSpacing:"0.06em" }}>{v.plate}</span>
                       </div>
-                      <button onClick={()=>removeVehicle(v.plate)} style={{ background:"transparent", border:"none", color:C.muted, fontSize:18, cursor:"pointer", padding:"2px 6px" }}>✕</button>
+                      {isAdmin && <button onClick={()=>removeVehicle(v.plate)} style={{ background:"transparent", border:"none", color:C.muted, fontSize:18, cursor:"pointer", padding:"2px 6px" }}>✕</button>}
                     </div>
                     <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                      <button onClick={()=>toggleAvailability(v.plate)} className="tap"
-                        style={{ ...badge(v.available), cursor:"pointer", padding:"5px 12px", fontSize:11 }}>
-                        <span style={{ width:6, height:6, borderRadius:"50%", background: v.available ? C.green : C.red, display:"inline-block" }} />
-                        {v.available ? "Disponible" : "No Disponible"}
-                      </button>
+                      {isAdmin ? (
+                        <button onClick={()=>toggleAvailability(v.plate)} className="tap"
+                          style={{ ...badge(v.available), cursor:"pointer", padding:"5px 12px", fontSize:11 }}>
+                          <span style={{ width:6, height:6, borderRadius:"50%", background: v.available ? C.green : C.red, display:"inline-block" }} />
+                          {v.available ? "Disponible" : "No Disponible"}
+                        </button>
+                      ) : (
+                        <span style={{ ...badge(v.available), padding:"5px 12px", fontSize:11 }}>
+                          <span style={{ width:6, height:6, borderRadius:"50%", background: v.available ? C.green : C.red, display:"inline-block" }} />
+                          {v.available ? "Disponible" : "No Disponible"}
+                        </span>
+                      )}
                       <div style={{ display:"flex", gap:12 }}>
-                        {[["📋",tot.scheduled||0,C.blue],["✅",tot.loaded||0,C.green],["🚛",tot.trips||0,C.yellowGreen]].map(([icon,val,color])=>(
+                        {[["📋",tot.scheduled||0,C.blue],["✅",tot.loaded||0,C.green]].map(([icon,val,color])=>(
                           <div key={icon} style={{ textAlign:"center" }}>
                             <div style={{ fontSize:14, fontWeight:800, color }}>{val}</div>
                             <div style={{ fontSize:9, color:C.muted }}>{icon}</div>
@@ -340,8 +417,8 @@ export default function App() {
             <input type="date" value={selectedDate} onChange={e=>setSelectedDate(e.target.value)}
               style={{ width:"100%", background:C.card, border:`1px solid ${C.border}`, borderRadius:10, padding:"11px 14px", color:C.text, fontSize:14, outline:"none", marginBottom:12 }} />
             <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:12, padding:"12px 14px", marginBottom:12, display:"flex" }}>
-              {[["Programados",scheduleForDate.length,C.blue],["Cargados",scheduleForDate.filter(v=>v.loaded).length,C.green],["Viajes",scheduleForDate.reduce((s,v)=>s+(v.trips||0),0),C.yellowGreen]].map(([label,val,color],i)=>(
-                <div key={label} style={{ flex:1, textAlign:"center", borderRight:i<2?`1px solid ${C.border}`:"none" }}>
+              {[["Programados",scheduleForDate.length,C.blue],["Cargados",scheduleForDate.filter(v=>v.loaded).length,C.green]].map(([label,val,color],i)=>(
+                <div key={label} style={{ flex:1, textAlign:"center", borderRight:i<1?`1px solid ${C.border}`:"none" }}>
                   <div style={{ fontSize:20, fontWeight:800, color }}>{val}</div>
                   <div style={{ fontSize:10, color:C.muted, textTransform:"uppercase", letterSpacing:"0.06em" }}>{label}</div>
                 </div>
@@ -360,7 +437,12 @@ export default function App() {
                 </button>
               </div>
             )}
-            <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, marginBottom:12, overflow:"hidden" }}>
+            {!isAdmin && (
+              <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:12, padding:"14px", marginBottom:12, textAlign:"center" }}>
+                <div style={{ fontSize:13, color:C.muted }}>👁️ Modo solo lectura — solo el administrador puede programar vehículos</div>
+              </div>
+            )}
+            {isAdmin && <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, marginBottom:12, overflow:"hidden" }}>
               <div style={{ padding:"11px 14px", borderBottom:`1px solid ${C.border}`, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
                 <div style={{ fontSize:13, fontWeight:700 }}>Disponibles <span style={{ color:C.muted, fontWeight:400 }}>({notYetScheduled.length})</span></div>
                 <div style={{ display:"flex", gap:6 }}>
@@ -390,7 +472,7 @@ export default function App() {
                   {selectedPlates.length?`⚡ Programar ${selectedPlates.length} vehículo(s)`:"Selecciona vehículos"}
                 </button>
               </div>
-            </div>
+            </div>}
             {scheduleForDate.length > 0 && (
               <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, overflow:"hidden" }}>
                 <div style={{ padding:"11px 14px", borderBottom:`1px solid ${C.border}`, fontSize:13, fontWeight:700 }}>
@@ -402,24 +484,29 @@ export default function App() {
                       <span style={{ fontSize:11, color:C.muted, fontWeight:700, minWidth:20 }}>{idx+1}</span>
                       <div style={{ width:8, height:8, borderRadius:"50%", background:v.loaded?C.green:C.orange, boxShadow:v.loaded?`0 0 7px ${C.green}`:`0 0 7px ${C.orange}`, flexShrink:0 }} />
                       <div style={{ fontWeight:900, fontSize:17, flex:1, letterSpacing:"0.05em" }}>{v.plate}</div>
-                      <button onClick={()=>removeFromSchedule(v.plate)} className="tap"
-                        style={{ background:"transparent", border:`1px solid ${C.border}`, borderRadius:6, color:C.muted, cursor:"pointer", fontSize:11, padding:"3px 8px", fontWeight:600 }}>Quitar</button>
+                      {isAdmin && <button onClick={()=>removeFromSchedule(v.plate)} className="tap"
+                        style={{ background:"transparent", border:`1px solid ${C.border}`, borderRadius:6, color:C.muted, cursor:"pointer", fontSize:11, padding:"3px 8px", fontWeight:600 }}>Quitar</button>}
                     </div>
                     <div style={{ marginBottom:8 }}>
-                      <input value={v.lastLoaded||""} onChange={e=>updateLastLoaded(v.plate,e.target.value)}
-                        placeholder="Último producto cargado..."
-                        style={{ width:"100%", background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"8px 12px", color:C.text, fontSize:13, outline:"none" }} />
+                      {isAdmin ? (
+                        <input value={v.observaciones||""} onChange={e=>updateObservaciones(v.plate,e.target.value)}
+                          placeholder="Observaciones..."
+                          style={{ width:"100%", background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"8px 12px", color:C.text, fontSize:13, outline:"none" }} />
+                      ) : v.observaciones ? (
+                        <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"8px 12px", color:C.muted, fontSize:13 }}>📝 {v.observaciones}</div>
+                      ) : null}
                     </div>
                     <div style={{ display:"flex", gap:8, alignItems:"center" }}>
-                      <div style={{ display:"flex", alignItems:"center", gap:5, background:C.surface, borderRadius:8, padding:"5px 8px", border:`1px solid ${C.border}` }}>
-                        <button onClick={()=>updateTrips(v.plate,-1)} className="tap" style={{ width:30, height:30, background:C.card, border:"none", borderRadius:5, color:C.text, cursor:"pointer", fontSize:18, display:"flex", alignItems:"center", justifyContent:"center" }}>−</button>
-                        <span style={{ minWidth:30, textAlign:"center", fontWeight:800, fontSize:13, color:C.yellowGreen }}>🚛 {v.trips||0}</span>
-                        <button onClick={()=>updateTrips(v.plate,1)} className="tap" style={{ width:30, height:30, background:C.card, border:"none", borderRadius:5, color:C.text, cursor:"pointer", fontSize:18, display:"flex", alignItems:"center", justifyContent:"center" }}>+</button>
-                      </div>
-                      <button onClick={()=>toggleLoaded(v.plate)} className="tap"
-                        style={{ flex:1, background:v.loaded?C.green+"33":C.blue, color:v.loaded?C.green:"#fff", border:v.loaded?`1px solid ${C.green}`:"none", borderRadius:10, padding:"9px 10px", cursor:"pointer", fontWeight:700, fontSize:13 }}>
-                        {v.loaded?`✓ Cargado · ${v.loadedTime||""}`:"Confirmar Carga"}
-                      </button>
+                      {isAdmin ? (
+                        <button onClick={()=>toggleLoaded(v.plate)} className="tap"
+                          style={{ flex:1, background:v.loaded?C.green+"33":C.blue, color:v.loaded?C.green:"#fff", border:v.loaded?`1px solid ${C.green}`:"none", borderRadius:10, padding:"9px 10px", cursor:"pointer", fontWeight:700, fontSize:13 }}>
+                          {v.loaded?`✓ Cargado · ${v.loadedTime||""}`:"Confirmar Carga"}
+                        </button>
+                      ) : (
+                        <div style={{ flex:1, background:v.loaded?C.green+"22":"transparent", color:v.loaded?C.green:C.muted, border:`1px solid ${v.loaded?C.green:C.border}`, borderRadius:10, padding:"9px 10px", fontWeight:700, fontSize:13, textAlign:"center" }}>
+                          {v.loaded?`✓ Cargado · ${v.loadedTime||""}`:"⏳ Pendiente"}
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -464,7 +551,6 @@ export default function App() {
               {[
                 ["Programados",reportData.reduce((s,d)=>s+d.programados,0),"📋",C.blue],
                 ["Cargados",reportData.reduce((s,d)=>s+d.cargados,0),"✅",C.green],
-                ["Viajes",reportData.reduce((s,d)=>s+d.viajes,0),"🚛",C.yellowGreen],
                 ["Cumplimiento",reportData.reduce((s,d)=>s+d.programados,0)>0?Math.round(reportData.reduce((s,d)=>s+d.cargados,0)/reportData.reduce((s,d)=>s+d.programados,0)*100)+"%":"—","📈","#c084fc"],
               ].map(([label,val,icon,color])=>(
                 <div key={label} style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:12, padding:"14px", position:"relative", overflow:"hidden" }}>
@@ -490,7 +576,6 @@ export default function App() {
                     <Legend wrapperStyle={{ fontSize:11, color:C.muted }} />
                     <Bar dataKey="programados" name="Prog." fill={C.blue} radius={[4,4,0,0]} />
                     <Bar dataKey="cargados" name="Carg." fill={C.green} radius={[4,4,0,0]} />
-                    <Bar dataKey="viajes" name="Viajes" fill={C.yellowGreen} radius={[4,4,0,0]} />
                   </BarChart>
                 </ResponsiveContainer>
               )}
@@ -510,7 +595,7 @@ export default function App() {
                       <span style={{...badge(v.available),fontSize:9}}>{v.available?"Disp.":"No Disp."}</span>
                     </div>
                     <div style={{ display:"flex", gap:12, marginBottom:7 }}>
-                      {[["Prog",t.scheduled||0,C.blue],["Carg",t.loaded||0,C.green],["Viajes",t.trips||0,C.yellowGreen]].map(([lbl,val,color])=>(
+                      {[["Prog",t.scheduled||0,C.blue],["Carg",t.loaded||0,C.green]].map(([lbl,val,color])=>(
                         <div key={lbl} style={{ textAlign:"center" }}>
                           <div style={{ fontSize:14, fontWeight:800, color }}>{val}</div>
                           <div style={{ fontSize:9, color:C.muted }}>{lbl}</div>
