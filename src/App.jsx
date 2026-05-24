@@ -161,6 +161,50 @@ export default function App() {
   const copyMessage = () => navigator.clipboard.writeText(buildWhatsAppText()).catch(() => {});
   const sendWhatsApp = () => window.open(`https://chat.whatsapp.com/LCkWONNBkq41X0mWV9feOF?text=${encodeURIComponent(buildWhatsAppText())}`, "_blank");
 
+  // CSV Export
+  const downloadCSV = (rangeType) => {
+    const rows = [["Fecha","Dia","Placa","Estado","Hora Cargue","Viajes","Ultimo Producto"]];
+    const allDates = Object.keys(schedules).sort();
+    let filtered = allDates;
+
+    if (rangeType === "week") {
+      filtered = allDates.filter(d => weekDates.includes(d));
+    } else if (rangeType === "month") {
+      filtered = allDates.filter(d => {
+        const dt = new Date(d + "T12:00:00");
+        return dt.getMonth() === currentMonth && dt.getFullYear() === currentYear;
+      });
+    }
+
+    filtered.forEach(date => {
+      const d = new Date(date + "T12:00:00");
+      const dayName = DAYS_ES[d.getDay()];
+      (schedules[date] || []).forEach(v => {
+        if (v.trips > 0 || v.loaded) {
+          rows.push([
+            date,
+            dayName,
+            v.plate,
+            v.loaded ? "Cargado" : "Pendiente",
+            v.loadedTime || "",
+            v.trips || 0,
+            v.lastLoaded || ""
+          ]);
+        }
+      });
+    });
+
+    const csv = rows.map(r => r.map(c => `"${c}"`).join(",")).join("\n");
+    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const label = rangeType === "week" ? "semana" : rangeType === "month" ? "mes" : "total";
+    a.href = url;
+    a.download = `canaven_viajes_${label}_${selectedDate}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   // Reports
   const weekDates = useMemo(() => getWeekDates(selectedDate), [selectedDate]);
   const weeklyData = useMemo(() => weekDates.map(date => {
@@ -401,6 +445,21 @@ export default function App() {
                 </button>
               ))}
             </div>
+
+            {/* CSV Download */}
+            <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:12, padding:"12px 14px", marginBottom:14 }}>
+              <div style={{ fontSize:11, color:C.muted, marginBottom:10, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.07em" }}>⬇️ Descargar CSV de Viajes</div>
+              <div style={{ display:"flex", gap:8 }}>
+                {[["Semana","week"],["Mes","month"],["Todo","all"]].map(([label, type])=>(
+                  <button key={type} onClick={()=>downloadCSV(type)} className="tap"
+                    style={{ flex:1, background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"9px 4px", color:C.yellowGreen, cursor:"pointer", fontSize:12, fontWeight:700, display:"flex", flexDirection:"column", alignItems:"center", gap:3 }}>
+                    <span style={{ fontSize:16 }}>📥</span>
+                    <span>{label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:16 }}>
               {[
                 ["Programados",reportData.reduce((s,d)=>s+d.programados,0),"📋",C.blue],
