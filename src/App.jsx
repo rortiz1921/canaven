@@ -54,6 +54,10 @@ export default function App() {
   const [selectedPlates, setSelectedPlates] = useState([]);
   const [syncing, setSyncing] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [pdfFrom, setPdfFrom] = useState(getTodayStr());
+  const [pdfTo, setPdfTo] = useState(getTodayStr());
+  const [pdfObs, setPdfObs] = useState("");
+  const [generatingPdf, setGeneratingPdf] = useState(false);
   const [authed, setAuthed] = useState(() => !!sessionStorage.getItem("canaven_role"));
   const [role, setRole] = useState(() => sessionStorage.getItem("canaven_role") || "");
   const [pinInput, setPinInput] = useState("");
@@ -214,6 +218,114 @@ export default function App() {
     a.download = `canaven_viajes_${label}_${selectedDate}.csv`;
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  // PDF Report generation
+  const generatePDF = async () => {
+    setGeneratingPdf(true);
+    try {
+      // Collect data for date range
+      const from = new Date(pdfFrom + "T12:00:00");
+      const to = new Date(pdfTo + "T12:00:00");
+      const days = [];
+      let d = new Date(from);
+      while (d <= to) {
+        const ds = d.toISOString().split("T")[0];
+        const daySchedules = schedules[ds] || [];
+        const cargados = daySchedules.filter(v => v.loaded).length;
+        if (cargados > 0) {
+          days.push({ date: ds, label: `${d.getDate()}/${d.getMonth()+1}/${String(d.getFullYear()).slice(2)}`, cargados });
+        }
+        d.setDate(d.getDate() + 1);
+      }
+      const total = days.reduce((s, d) => s + d.cargados, 0);
+      const maxVal = Math.max(...days.map(d => d.cargados), 1);
+
+      // Build HTML for PDF
+      const fromLabel = `${from.getDate()}/${from.getMonth()+1}/${from.getFullYear()}`;
+      const toLabel = `${to.getDate()}/${to.getMonth()+1}/${to.getFullYear()}`;
+      const today = new Date();
+      const reportDate = `${today.getDate()}/${today.getMonth()+1}/${today.getFullYear()}`;
+
+      const barW = days.length > 0 ? Math.min(40, Math.floor(500 / days.length)) : 40;
+      const chartH = 180;
+
+      const barsHtml = days.map(day => {
+        const h = Math.round((day.cargados / maxVal) * chartH * 0.85);
+        return `<div style="display:flex;flex-direction:column;align-items:center;gap:2px;flex:1;min-width:${barW}px;">
+          <span style="font-size:9px;font-weight:bold;color:#333">${day.cargados}</span>
+          <div style="width:${barW-6}px;height:${h}px;background:#1a56c4;border-radius:3px 3px 0 0;"></div>
+          <span style="font-size:7px;color:#666;writing-mode:vertical-rl;transform:rotate(180deg);height:32px;line-height:1;">${day.label}</span>
+        </div>`;
+      }).join("");
+
+      const tableRows = days.map(day =>
+        `<tr><td style="border:1px solid #ccc;padding:6px 12px;text-align:center;">${day.label}</td>
+         <td style="border:1px solid #ccc;padding:6px 12px;text-align:center;font-weight:bold;">${day.cargados}</td></tr>`
+      ).join("");
+
+      const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
+      <style>
+        body{font-family:Arial,sans-serif;margin:0;padding:30px;color:#222;font-size:11px;}
+        .header{display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #1a56c4;padding-bottom:12px;margin-bottom:20px;}
+        .logo-text{font-size:22px;font-weight:900;color:#1a56c4;letter-spacing:1px;}
+        .logo-sub{font-size:9px;color:#b5c832;letter-spacing:2px;}
+        h2{text-align:center;font-size:13px;font-weight:bold;letter-spacing:1px;margin:0 0 20px;}
+        .section-title{font-weight:bold;font-size:11px;margin:16px 0 6px;}
+        .item{margin:3px 0 3px 20px;font-size:10px;}
+        .chart-wrap{border:1px solid #ddd;border-radius:4px;padding:16px;margin:12px 0;}
+        .chart-title{text-align:center;font-weight:bold;font-size:12px;margin-bottom:12px;}
+        .bars{display:flex;align-items:flex-end;justify-content:center;gap:2px;height:${chartH}px;border-bottom:2px solid #999;}
+        table{border-collapse:collapse;margin:0 auto;}
+        th{background:#1a56c4;color:#fff;padding:6px 24px;font-size:11px;}
+        tfoot td{font-weight:bold;background:#f0f0f0;border:1px solid #ccc;padding:6px 12px;text-align:center;}
+        .obs-item{margin:4px 0;font-size:10px;}
+        .footer{border-top:1px dashed #aaa;margin-top:32px;padding-top:12px;font-size:10px;}
+        .sign-line{border-bottom:1px solid #333;width:140px;margin:24px 0 4px;}
+      </style></head><body>
+      <div class="header">
+        <div>
+          <div class="logo-text">&#9632;&#9632; CANAVEN</div>
+          <div class="logo-sub">Transportes de Colombia SAS</div>
+        </div>
+        <div style="text-align:right;font-size:10px;color:#555;">Informe generado: ${reportDate}</div>
+      </div>
+      <h2>INFORME OPERATIVO ${pdfFrom === pdfTo ? "" : "SEMANAL"}</h2>
+      <p><strong>1. FECHA:</strong> ${reportDate}</p>
+      <p class="section-title">2. ACTIVIDADES:</p>
+      <div class="item">1. Programación de vehículos diarios.</div>
+      <div class="item">2. Seguimiento de GPS para asegurar cantidad de vehículos programados</div>
+      <div class="item">3. Solicitud de documentos operativos a los propietarios</div>
+      <div class="item">4. Comunicación con personal de Canacol para asegurar la actividad y cumplir la programación.</div>
+      <div class="item">5. Reunión propietarios temas de facturación y pagos.</div>
+      <p class="section-title">3. INDICADORES: cargue de vehículos del ${fromLabel} al ${toLabel}</p>
+      <div class="chart-wrap">
+        <div class="chart-title">CARGUES POR DÍA</div>
+        <div class="bars">${barsHtml}</div>
+        <div style="text-align:center;margin-top:8px;font-size:9px;color:#555;">■ VIAJES</div>
+      </div>
+      <p class="section-title">4. INDICADOR: DEL ${fromLabel.toUpperCase()} A ${toLabel.toUpperCase()}</p>
+      <table>
+        <thead><tr><th>DIA</th><th>VIAJES</th></tr></thead>
+        <tbody>${tableRows}</tbody>
+        <tfoot><tr><td>TOTAL</td><td>${total}</td></tr></tfoot>
+      </table>
+      <p class="section-title">5. OBSERVACIONES:</p>
+      ${(pdfObs || `Promedio de cargues por día: ${days.length > 0 ? (total/days.length).toFixed(1) : 0} viajes.`).split("\n").map(l => `<div class="obs-item">• ${l}</div>`).join("")}
+      <div class="footer">
+        <div>Realizo:</div>
+        <div class="sign-line"></div>
+        <div><strong>RONALD JESUS ORTIZ</strong></div>
+      </div>
+      </body></html>`;
+
+      // Open in new window and print as PDF
+      const win = window.open("", "_blank");
+      win.document.write(html);
+      win.document.close();
+      win.onload = () => { win.focus(); win.print(); };
+    } catch(e) { console.error(e); }
+    setGeneratingPdf(false);
   };
 
   // Reports
@@ -545,6 +657,35 @@ export default function App() {
                   </button>
                 ))}
               </div>
+            </div>
+
+            {/* PDF Report Generator */}
+            <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:12, padding:"14px", marginBottom:14 }}>
+              <div style={{ fontSize:11, color:C.muted, marginBottom:10, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.07em" }}>📄 Generar Informe Operativo PDF</div>
+              <div style={{ display:"flex", gap:8, marginBottom:10 }}>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:10, color:C.muted, marginBottom:4 }}>Desde</div>
+                  <input type="date" value={pdfFrom} onChange={e=>setPdfFrom(e.target.value)}
+                    style={{ width:"100%", background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"8px 10px", color:C.text, fontSize:12, outline:"none" }} />
+                </div>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:10, color:C.muted, marginBottom:4 }}>Hasta</div>
+                  <input type="date" value={pdfTo} onChange={e=>setPdfTo(e.target.value)}
+                    style={{ width:"100%", background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"8px 10px", color:C.text, fontSize:12, outline:"none" }} />
+                </div>
+              </div>
+              <div style={{ marginBottom:10 }}>
+                <div style={{ fontSize:10, color:C.muted, marginBottom:4 }}>Observaciones del informe</div>
+                <textarea value={pdfObs} onChange={e=>setPdfObs(e.target.value)}
+                  placeholder="Ej: Promedio de cargues al mes por día 5 viajes..."
+                  rows={3}
+                  style={{ width:"100%", background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"8px 10px", color:C.text, fontSize:12, outline:"none", resize:"vertical", fontFamily:"inherit" }} />
+              </div>
+              <button onClick={generatePDF} disabled={generatingPdf} className="tap"
+                style={{ width:"100%", background: generatingPdf ? C.border : "#dc2626", color:"#fff", border:"none", borderRadius:10, padding:"12px 0", fontSize:14, fontWeight:700, cursor: generatingPdf?"not-allowed":"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
+                <span style={{ fontSize:18 }}>📄</span>
+                {generatingPdf ? "Generando..." : "Generar PDF"}
+              </button>
             </div>
 
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:16 }}>
