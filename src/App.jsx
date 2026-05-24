@@ -1,5 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
+import { db } from "./firebase";
+import { doc, setDoc, getDoc, onSnapshot } from "firebase/firestore";
 
 const DAYS_ES = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
 const MONTHS_ES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
@@ -23,13 +25,6 @@ const C = {
   text: "#e8eaf6", muted: "#7c8099", border: "#2d3154",
 };
 
-function load(key, fallback) {
-  try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch { return fallback; }
-}
-function save(key, value) {
-  try { localStorage.setItem(key, JSON.stringify(value)); } catch {}
-}
-
 const CanavenLogo = () => (
   <div style={{ display:"flex", alignItems:"center", gap:8 }}>
     <svg width="44" height="28" viewBox="0 0 88 56" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -51,16 +46,43 @@ const CanavenLogo = () => (
 
 export default function App() {
   const [tab, setTab] = useState("schedule");
-  const [vehicles, setVehicles] = useState(() => load("canaven_vehicles", DEFAULT_VEHICLES));
+  const [vehicles, setVehicles] = useState(DEFAULT_VEHICLES);
   const [newPlate, setNewPlate] = useState("");
-  const [schedules, setSchedules] = useState(() => load("canaven_schedules", {}));
+  const [schedules, setSchedules] = useState({});
   const [selectedDate, setSelectedDate] = useState(getTodayStr());
   const [reportView, setReportView] = useState("weekly");
   const [selectedPlates, setSelectedPlates] = useState([]);
+  const [syncing, setSyncing] = useState(false);
+  const [loaded, setLoaded] = useState(false);
 
-  // Persist to localStorage on every change
-  useEffect(() => { save("canaven_vehicles", vehicles); }, [vehicles]);
-  useEffect(() => { save("canaven_schedules", schedules); }, [schedules]);
+  // ── Load from Firestore on mount ──
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, "canaven", "data"), (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        if (data.vehicles) setVehicles(data.vehicles);
+        if (data.schedules) setSchedules(data.schedules);
+      }
+      setLoaded(true);
+    });
+    return () => unsub();
+  }, []);
+
+  // ── Save to Firestore whenever data changes ──
+  const saveToFirestore = async (newVehicles, newSchedules) => {
+    setSyncing(true);
+    try {
+      await setDoc(doc(db, "canaven", "data"), {
+        vehicles: newVehicles,
+        schedules: newSchedules,
+        updatedAt: new Date().toISOString()
+      });
+    } catch (e) { console.error(e); }
+    setSyncing(false);
+  };
+
+  const updateVehicles = (newV) => { setVehicles(newV); saveToFirestore(newV, schedules); };
+  const updateSchedules = (newS) => { setSchedules(newS); saveToFirestore(vehicles, newS); };
 
   const badge = (ok) => ({ display:"inline-flex", alignItems:"center", gap:4, padding:"3px 9px", borderRadius:20, fontSize:10, fontWeight:700, letterSpacing:"0.07em", textTransform:"uppercase", background: ok ? C.green+"22" : C.red+"22", color: ok ? C.green : C.red, border:`1px solid ${ok ? C.green+"55" : C.red+"55"}` });
 
@@ -68,12 +90,13 @@ export default function App() {
   const addVehicle = () => {
     const p = newPlate.trim().toUpperCase();
     if (!p || vehicles.find(v => v.plate === p)) return;
-    setVehicles(prev => [...prev, { plate: p, available: true }]);
+    const newV = [...vehicles, { plate: p, available: true }];
+    updateVehicles(newV);
     setNewPlate("");
   };
-  const removeVehicle = (plate) => setVehicles(prev => prev.filter(v => v.plate !== plate));
+  const removeVehicle = (plate) => updateVehicles(vehicles.filter(v => v.plate !== plate));
   const toggleAvailability = (plate) => {
-    setVehicles(prev => prev.map(v => v.plate === plate ? { ...v, available: !v.available } : v));
+    updateVehicles(vehicles.map(v => v.plate === plate ? { ...v, available: !v.available } : v));
     setSelectedPlates(prev => prev.filter(p => p !== plate));
   };
 
@@ -88,40 +111,38 @@ export default function App() {
 
   const addSelectedToSchedule = () => {
     if (!selectedPlates.length) return;
-    setSchedules(prev => {
-      const existing = prev[selectedDate] || [];
-      const toAdd = selectedPlates.filter(plate => !existing.find(e => e.plate === plate))
-        .map(plate => ({ plate, loaded: false, loadedTime: null, trips: 0, lastLoaded: "" }));
-      return { ...prev, [selectedDate]: [...existing, ...toAdd] };
-    });
+    const existing = schedules[selectedDate] || [];
+    const toAdd = selectedPlates.filter(plate => !existing.find(e => e.plate === plate))
+      .map(plate => ({ plate, loaded: false, loadedTime: null, trips: 0, lastLoaded: "" }));
+    updateSchedules({ ...schedules, [selectedDate]: [...existing, ...toAdd] });
     setSelectedPlates([]);
   };
 
-  const removeFromSchedule = (plate) => setSchedules(prev => ({ ...prev, [selectedDate]: (prev[selectedDate] || []).filter(v => v.plate !== plate) }));
+  const removeFromSchedule = (plate) => updateSchedules({ ...schedules, [selectedDate]: (schedules[selectedDate] || []).filter(v => v.plate !== plate) });
 
-  const toggleLoaded = (plate) => setSchedules(prev => {
-    const day = [...(prev[selectedDate] || [])];
+  const toggleLoaded = (plate) => {
+    const day = [...(schedules[selectedDate] || [])];
     const idx = day.findIndex(v => v.plate === plate);
-    if (idx === -1) return prev;
+    if (idx === -1) return;
     day[idx] = { ...day[idx], loaded: !day[idx].loaded, loadedTime: !day[idx].loaded ? new Date().toLocaleTimeString("es-CO", { hour:"2-digit", minute:"2-digit" }) : null };
-    return { ...prev, [selectedDate]: day };
-  });
+    updateSchedules({ ...schedules, [selectedDate]: day });
+  };
 
-  const updateTrips = (plate, delta) => setSchedules(prev => {
-    const day = [...(prev[selectedDate] || [])];
+  const updateTrips = (plate, delta) => {
+    const day = [...(schedules[selectedDate] || [])];
     const idx = day.findIndex(v => v.plate === plate);
-    if (idx === -1) return prev;
+    if (idx === -1) return;
     day[idx] = { ...day[idx], trips: Math.max(0, (day[idx].trips || 0) + delta) };
-    return { ...prev, [selectedDate]: day };
-  });
+    updateSchedules({ ...schedules, [selectedDate]: day });
+  };
 
-  const updateLastLoaded = (plate, value) => setSchedules(prev => {
-    const day = [...(prev[selectedDate] || [])];
+  const updateLastLoaded = (plate, value) => {
+    const day = [...(schedules[selectedDate] || [])];
     const idx = day.findIndex(v => v.plate === plate);
-    if (idx === -1) return prev;
+    if (idx === -1) return;
     day[idx] = { ...day[idx], lastLoaded: value };
-    return { ...prev, [selectedDate]: day };
-  });
+    updateSchedules({ ...schedules, [selectedDate]: day });
+  };
 
   // WhatsApp
   const buildWhatsAppText = () => {
@@ -137,15 +158,8 @@ export default function App() {
     lines.push(``, `📋 Total: ${scheduleForDate.length} · ✅ Cargados: ${scheduleForDate.filter(v => v.loaded).length} · 🚛 Viajes: ${scheduleForDate.reduce((s, v) => s + (v.trips || 0), 0)}`);
     return lines.join("\n");
   };
-
-  const copyMessage = () => {
-    navigator.clipboard.writeText(buildWhatsAppText()).catch(() => {});
-  };
-
-  const sendWhatsApp = () => {
-    const text = buildWhatsAppText();
-    window.open(`https://chat.whatsapp.com/LCkWONNBkq41X0mWV9feOF?text=${encodeURIComponent(text)}`, "_blank");
-  };
+  const copyMessage = () => navigator.clipboard.writeText(buildWhatsAppText()).catch(() => {});
+  const sendWhatsApp = () => window.open(`https://chat.whatsapp.com/LCkWONNBkq41X0mWV9feOF?text=${encodeURIComponent(buildWhatsAppText())}`, "_blank");
 
   // Reports
   const weekDates = useMemo(() => getWeekDates(selectedDate), [selectedDate]);
@@ -187,6 +201,15 @@ export default function App() {
     { id:"reports", icon:"📊", label:"Informes" },
   ];
 
+  if (!loaded) return (
+    <div style={{ minHeight:"100vh", background:C.bg, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:16 }}>
+      <CanavenLogo />
+      <div style={{ color:C.muted, fontSize:13, marginTop:8 }}>Cargando datos...</div>
+      <div style={{ width:40, height:40, border:`3px solid ${C.border}`, borderTop:`3px solid ${C.blue}`, borderRadius:"50%", animation:"spin 0.8s linear infinite" }} />
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+    </div>
+  );
+
   return (
     <div style={{ minHeight:"100vh", background:C.bg, color:C.text, fontFamily:"'Segoe UI', Arial, sans-serif", paddingBottom:80 }}>
       <style>{`
@@ -202,7 +225,9 @@ export default function App() {
         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
           <CanavenLogo />
           <div style={{ textAlign:"right" }}>
-            <div style={{ fontSize:9, color:C.yellowGreen, letterSpacing:"0.12em", textTransform:"uppercase", fontWeight:700 }}>Colombia</div>
+            <div style={{ fontSize:9, color: syncing ? C.orange : C.green, letterSpacing:"0.1em", textTransform:"uppercase", fontWeight:700 }}>
+              {syncing ? "⏳ Guardando..." : "☁️ Sincronizado"}
+            </div>
             <div style={{ fontSize:9, color:C.muted, marginTop:2 }}>
               {(() => { const d = new Date(selectedDate+"T12:00:00"); return `${DAYS_ES[d.getDay()]} ${d.getDate()} ${MONTHS_ES[d.getMonth()]}`; })()}
             </div>
@@ -268,11 +293,8 @@ export default function App() {
               <div style={{ fontSize:16, fontWeight:700, marginBottom:2 }}>Programación Diaria</div>
               <div style={{ fontSize:12, color:C.muted }}>Selecciona vehículos disponibles</div>
             </div>
-
             <input type="date" value={selectedDate} onChange={e=>setSelectedDate(e.target.value)}
               style={{ width:"100%", background:C.card, border:`1px solid ${C.border}`, borderRadius:10, padding:"11px 14px", color:C.text, fontSize:14, outline:"none", marginBottom:12 }} />
-
-            {/* Summary */}
             <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:12, padding:"12px 14px", marginBottom:12, display:"flex" }}>
               {[["Programados",scheduleForDate.length,C.blue],["Cargados",scheduleForDate.filter(v=>v.loaded).length,C.green],["Viajes",scheduleForDate.reduce((s,v)=>s+(v.trips||0),0),C.yellowGreen]].map(([label,val,color],i)=>(
                 <div key={label} style={{ flex:1, textAlign:"center", borderRight:i<2?`1px solid ${C.border}`:"none" }}>
@@ -281,8 +303,6 @@ export default function App() {
                 </div>
               ))}
             </div>
-
-            {/* WhatsApp buttons */}
             {scheduleForDate.length > 0 && (
               <div style={{ display:"flex", gap:8, marginBottom:12 }}>
                 <button onClick={copyMessage} className="tap"
@@ -296,8 +316,6 @@ export default function App() {
                 </button>
               </div>
             )}
-
-            {/* Vehicle selector */}
             <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, marginBottom:12, overflow:"hidden" }}>
               <div style={{ padding:"11px 14px", borderBottom:`1px solid ${C.border}`, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
                 <div style={{ fontSize:13, fontWeight:700 }}>Disponibles <span style={{ color:C.muted, fontWeight:400 }}>({notYetScheduled.length})</span></div>
@@ -312,7 +330,7 @@ export default function App() {
                 const disabled = !v.available || isScheduled;
                 return (
                   <div key={v.plate} onClick={()=>!disabled&&toggleSelectPlate(v.plate)}
-                    style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 14px", borderBottom:`1px solid ${C.border}`, background: isSelected?C.blue+"22":isScheduled?C.green+"0a":"transparent", cursor:disabled?"not-allowed":"pointer", opacity:disabled&&!isScheduled?0.38:1 }}>
+                    style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 14px", borderBottom:`1px solid ${C.border}`, background:isSelected?C.blue+"22":isScheduled?C.green+"0a":"transparent", cursor:disabled?"not-allowed":"pointer", opacity:disabled&&!isScheduled?0.38:1 }}>
                     <span style={{ fontSize:11, color:C.muted, minWidth:20, textAlign:"right", fontWeight:700 }}>{idx+1}</span>
                     <div style={{ width:22, height:22, borderRadius:6, border:`2px solid ${isSelected?C.blue:isScheduled?C.green:C.border}`, background:isSelected?C.blue:isScheduled?C.green+"33":"transparent", display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, color:"#fff", fontWeight:900, flexShrink:0 }}>
                       {isSelected?"✓":isScheduled?"●":""}
@@ -329,8 +347,6 @@ export default function App() {
                 </button>
               </div>
             </div>
-
-            {/* Scheduled list */}
             {scheduleForDate.length > 0 && (
               <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, overflow:"hidden" }}>
                 <div style={{ padding:"11px 14px", borderBottom:`1px solid ${C.border}`, fontSize:13, fontWeight:700 }}>
