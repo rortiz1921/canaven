@@ -316,6 +316,35 @@ export default function App() {
         </div>`;
       }).join("");
 
+      // Vehicle availability % for the PDF report month range
+      const pdfMonthTotal = days.reduce((s, d) => s + d.cargados, 0);
+      const vehicleAvailData = vehicles.map(v => {
+        const loaded = Object.entries(schedules)
+          .filter(([date]) => {
+            const d = new Date(date + "T12:00:00");
+            return d >= from && d <= to;
+          })
+          .reduce((sum, [, ds]) => {
+            const f = ds.find(s => s.plate === v.plate);
+            return sum + (f && f.loaded ? 1 : 0);
+          }, 0);
+        return { plate: v.plate, loaded, pct: pdfMonthTotal > 0 ? Math.round((loaded / pdfMonthTotal) * 100) : 0 };
+      }).filter(d => d.loaded > 0).sort((a, b) => b.loaded - a.loaded);
+
+      const availBarsHtml = vehicleAvailData.map(v => {
+        const barW2 = Math.max(100, 100);
+        return `<tr>
+          <td style="padding:5px 8px;font-weight:bold;font-size:10px;white-space:nowrap;">${v.plate}</td>
+          <td style="padding:5px 8px;width:100%;">
+            <div style="background:#eee;border-radius:4px;height:14px;overflow:hidden;">
+              <div style="width:${v.pct}%;height:100%;background:${v.pct>=20?"#4ade80":v.pct>=10?"#b5c832":"#1a56c4"};border-radius:4px;"></div>
+            </div>
+          </td>
+          <td style="padding:5px 8px;font-size:10px;font-weight:bold;color:#1a56c4;white-space:nowrap;">${v.loaded} cargues</td>
+          <td style="padding:5px 8px;font-size:11px;font-weight:900;color:#b5c832;white-space:nowrap;">${v.pct}%</td>
+        </tr>`;
+      }).join("");
+
       const tableRows = days.map(day =>
         `<tr><td style="border:1px solid #ccc;padding:6px 12px;text-align:center;">${day.label}</td>
          <td style="border:1px solid #ccc;padding:6px 12px;text-align:center;font-weight:bold;">${day.cargados}</td></tr>`
@@ -372,7 +401,21 @@ export default function App() {
         <tbody>${tableRows}</tbody>
         <tfoot><tr><td>TOTAL</td><td>${total}</td></tr></tfoot>
       </table>
-      <p class="section-title">6. OBSERVACIONES:</p>
+      <p class="section-title">6. DISPONIBILIDAD POR VEHÍCULO</p>
+      <div class="chart-wrap" style="padding:12px;">
+        <div class="chart-title">% Participación de Cargues por Vehículo</div>
+        <table style="width:100%;border-collapse:collapse;">
+          <tbody>${availBarsHtml}</tbody>
+          <tfoot>
+            <tr>
+              <td colspan="4" style="padding:6px 8px;font-size:10px;color:#666;border-top:1px solid #ddd;">
+                Total cargues del período: <strong>${pdfMonthTotal}</strong>
+              </td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      <p class="section-title">7. OBSERVACIONES:</p>
       ${(pdfObs || `Promedio de cargues por día: ${days.length > 0 ? (total/days.length).toFixed(1) : 0} viajes.`).split("\n").map(l => `<div class="obs-item">• ${l}</div>`).join("")}
       <div class="footer">
         <div>Realizo:</div>
@@ -901,6 +944,55 @@ export default function App() {
                         </tr>
                       </tfoot>
                     </table>
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Vehicle availability % chart for the selected month */}
+            <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:"14px 8px", marginBottom:16 }}>
+              <div style={{ fontWeight:700, fontSize:13, marginBottom:2, paddingLeft:8 }}>% Disponibilidad por Vehículo</div>
+              <div style={{ fontSize:11, color:C.muted, marginBottom:12, paddingLeft:8 }}>
+                Participación de cargues en {MONTHS_ES[currentMonth]} {currentYear}
+              </div>
+              {(() => {
+                const monthTotal = Object.entries(schedules)
+                  .filter(([date]) => { const d = new Date(date+"T12:00:00"); return d.getMonth()===currentMonth && d.getFullYear()===currentYear; })
+                  .reduce((sum,[,ds]) => sum + ds.filter(v=>v.loaded).length, 0);
+                const data = vehicles.map(v => {
+                  const loaded = Object.entries(schedules)
+                    .filter(([date]) => { const d = new Date(date+"T12:00:00"); return d.getMonth()===currentMonth && d.getFullYear()===currentYear; })
+                    .reduce((sum,[,ds]) => { const f=ds.find(s=>s.plate===v.plate); return sum+(f&&f.loaded?1:0); }, 0);
+                  return { name: v.plate, value: loaded, pct: monthTotal>0?Math.round((loaded/monthTotal)*100):0 };
+                }).filter(d => d.value > 0).sort((a,b) => b.value - a.value);
+                if (data.length === 0) return (
+                  <div style={{ textAlign:"center", padding:"20px", color:C.muted, fontSize:13 }}>Sin datos para {MONTHS_ES[currentMonth]} {currentYear}</div>
+                );
+                const maxVal = data[0].value;
+                return (
+                  <div style={{ padding:"0 8px" }}>
+                    {data.map((d, i) => (
+                      <div key={d.name} style={{ marginBottom:10 }}>
+                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:4 }}>
+                          <span style={{ fontWeight:800, fontSize:13, color:C.text, letterSpacing:"0.05em" }}>{d.name}</span>
+                          <div style={{ display:"flex", gap:10, alignItems:"center" }}>
+                            <span style={{ fontSize:12, color:C.green, fontWeight:700 }}>{d.value} cargues</span>
+                            <span style={{ fontSize:13, fontWeight:900, color:C.yellowGreen, minWidth:36, textAlign:"right" }}>{d.pct}%</span>
+                          </div>
+                        </div>
+                        <div style={{ height:10, background:C.surface, borderRadius:5, overflow:"hidden", border:`1px solid ${C.border}` }}>
+                          <div style={{ 
+                            width:`${d.pct}%`, height:"100%", borderRadius:5,
+                            background: d.pct>=20?C.green:d.pct>=10?C.yellowGreen:C.blue,
+                            transition:"width 0.4s"
+                          }} />
+                        </div>
+                      </div>
+                    ))}
+                    <div style={{ marginTop:12, padding:"8px 10px", background:C.surface, borderRadius:8, display:"flex", justifyContent:"space-between", fontSize:12 }}>
+                      <span style={{ color:C.muted }}>Total cargues del mes:</span>
+                      <span style={{ fontWeight:800, color:C.green }}>{monthTotal}</span>
+                    </div>
                   </div>
                 );
               })()}
