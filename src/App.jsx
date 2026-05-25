@@ -373,6 +373,10 @@ export default function App() {
 
       const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
       <style>
+        @media print {
+          body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+          @page { margin: 1.5cm; }
+        }
         body{font-family:Arial,sans-serif;margin:0;padding:30px;color:#222;font-size:11px;}
         .header{display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #1a56c4;padding-bottom:12px;margin-bottom:20px;}
         .logo-text{font-size:22px;font-weight:900;color:#1a56c4;letter-spacing:1px;}
@@ -445,11 +449,30 @@ export default function App() {
       </div>
       </body></html>`;
 
-      // Open in new window and print as PDF
-      const win = window.open("", "_blank");
-      win.document.write(html);
-      win.document.close();
-      win.onload = () => { win.focus(); win.print(); };
+      // Create hidden iframe and print from it (avoids popup blockers)
+      const existing = document.getElementById("pdf-iframe");
+      if (existing) existing.remove();
+      const iframe = document.createElement("iframe");
+      iframe.id = "pdf-iframe";
+      iframe.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;border:none;z-index:9999;background:white;";
+      document.body.appendChild(iframe);
+      iframe.contentDocument.open();
+      iframe.contentDocument.write(html);
+      iframe.contentDocument.close();
+      // Add close button overlay
+      const closeBtn = document.createElement("button");
+      closeBtn.textContent = "✕ Cerrar vista previa";
+      closeBtn.style.cssText = "position:fixed;top:12px;right:12px;z-index:10000;background:#1a56c4;color:#fff;border:none;border-radius:8px;padding:10px 18px;font-size:14px;font-weight:700;cursor:pointer;";
+      closeBtn.onclick = () => { iframe.remove(); closeBtn.remove(); printBtn.remove(); };
+      document.body.appendChild(closeBtn);
+      // Add print button
+      const printBtn = document.createElement("button");
+      printBtn.textContent = "🖨️ Guardar / Imprimir PDF";
+      printBtn.style.cssText = "position:fixed;top:12px;right:200px;z-index:10000;background:#25a244;color:#fff;border:none;border-radius:8px;padding:10px 18px;font-size:14px;font-weight:700;cursor:pointer;";
+      printBtn.onclick = () => { iframe.contentWindow.focus(); iframe.contentWindow.print(); };
+      document.body.appendChild(printBtn);
+      // Auto-trigger print after short delay
+      setTimeout(() => { iframe.contentWindow.focus(); iframe.contentWindow.print(); }, 800);
     } catch(e) { console.error(e); }
     setGeneratingPdf(false);
   };
