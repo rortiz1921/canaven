@@ -54,6 +54,7 @@ export default function App() {
   const [selectedPlates, setSelectedPlates] = useState([]);
   const [syncing, setSyncing] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [replaceInput, setReplaceInput] = useState({}); // { plate: inputValue }
   const [pdfFrom, setPdfFrom] = useState(getTodayStr());
   const [pdfTo, setPdfTo] = useState(getTodayStr());
   const [pdfObs, setPdfObs] = useState("");
@@ -123,6 +124,38 @@ export default function App() {
   const toggleAvailability = (plate) => {
     updateVehicles(vehicles.map(v => v.plate === plate ? { ...v, available: !v.available } : v));
     setSelectedPlates(prev => prev.filter(p => p !== plate));
+  };
+
+  const applyReplacement = (originalPlate) => {
+    const newPlate = (replaceInput[originalPlate] || "").trim().toUpperCase();
+    if (!newPlate || newPlate === originalPlate) return;
+    // Insert replacement in same position, disable original
+    setVehicles(prev => {
+      const updated = prev.map(v => {
+        if (v.plate === originalPlate) return { ...v, available: false, replacedBy: newPlate };
+        return v;
+      });
+      // Insert new vehicle right after original if not already in list
+      if (!updated.find(v => v.plate === newPlate)) {
+        const idx = updated.findIndex(v => v.plate === originalPlate);
+        updated.splice(idx + 1, 0, { plate: newPlate, available: true });
+      }
+      updateVehicles(updated);
+      return updated;
+    });
+    setReplaceInput(prev => ({ ...prev, [originalPlate]: "" }));
+  };
+
+  const clearReplacement = (originalPlate) => {
+    setVehicles(prev => {
+      const v = prev.find(p => p.plate === originalPlate);
+      if (!v || !v.replacedBy) return prev;
+      const updated = prev
+        .filter(p => p.plate !== v.replacedBy)
+        .map(p => p.plate === originalPlate ? { ...p, available: true, replacedBy: null } : p);
+      updateVehicles(updated);
+      return updated;
+    });
   };
 
   // Schedule
@@ -259,6 +292,30 @@ export default function App() {
         </div>`;
       }).join("");
 
+      // Build monthly comparison data (last 12 months)
+      const monthlyMap = {};
+      Object.entries(schedules).forEach(([date, ds]) => {
+        const d = new Date(date + "T12:00:00");
+        const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+        const label = MONTHS_ES[d.getMonth()].slice(0,3) + " " + String(d.getFullYear()).slice(2);
+        if (!monthlyMap[key]) monthlyMap[key] = { label, total: 0 };
+        monthlyMap[key].total += ds.filter(v => v.loaded).length;
+      });
+      const monthlyArr = Object.entries(monthlyMap)
+        .sort(([a],[b]) => a.localeCompare(b))
+        .slice(-12)
+        .map(([,v]) => v);
+      const maxMonth = Math.max(...monthlyArr.map(m => m.total), 1);
+      const mBarW = monthlyArr.length > 0 ? Math.min(55, Math.floor(500 / monthlyArr.length)) : 55;
+      const monthlyBarsHtml = monthlyArr.map(m => {
+        const h = Math.round((m.total / maxMonth) * chartH * 0.85);
+        return `<div style="display:flex;flex-direction:column;align-items:center;gap:2px;flex:1;min-width:${mBarW}px;">
+          <span style="font-size:9px;font-weight:bold;color:#333">${m.total}</span>
+          <div style="width:${mBarW-8}px;height:${h}px;background:#b5c832;border-radius:3px 3px 0 0;"></div>
+          <span style="font-size:8px;color:#666;text-align:center;line-height:1.2;">${m.label}</span>
+        </div>`;
+      }).join("");
+
       const tableRows = days.map(day =>
         `<tr><td style="border:1px solid #ccc;padding:6px 12px;text-align:center;">${day.label}</td>
          <td style="border:1px solid #ccc;padding:6px 12px;text-align:center;font-weight:bold;">${day.cargados}</td></tr>`
@@ -303,13 +360,19 @@ export default function App() {
         <div class="bars">${barsHtml}</div>
         <div style="text-align:center;margin-top:8px;font-size:9px;color:#555;">■ VIAJES</div>
       </div>
-      <p class="section-title">4. INDICADOR: DEL ${fromLabel.toUpperCase()} A ${toLabel.toUpperCase()}</p>
+      <p class="section-title">4. COMPARATIVO MENSUAL DE CARGUES</p>
+      <div class="chart-wrap">
+        <div class="chart-title">CARGUES POR MES</div>
+        <div class="bars">${monthlyBarsHtml}</div>
+        <div style="text-align:center;margin-top:8px;font-size:9px;color:#555;">■ TOTAL CARGUES POR MES</div>
+      </div>
+      <p class="section-title">5. INDICADOR: DEL ${fromLabel.toUpperCase()} A ${toLabel.toUpperCase()}</p>
       <table>
         <thead><tr><th>DIA</th><th>VIAJES</th></tr></thead>
         <tbody>${tableRows}</tbody>
         <tfoot><tr><td>TOTAL</td><td>${total}</td></tr></tfoot>
       </table>
-      <p class="section-title">5. OBSERVACIONES:</p>
+      <p class="section-title">6. OBSERVACIONES:</p>
       ${(pdfObs || `Promedio de cargues por día: ${days.length > 0 ? (total/days.length).toFixed(1) : 0} viajes.`).split("\n").map(l => `<div class="obs-item">• ${l}</div>`).join("")}
       <div class="footer">
         <div>Realizo:</div>
@@ -489,17 +552,17 @@ export default function App() {
                       </div>
                       {isAdmin && <button onClick={()=>removeVehicle(v.plate)} style={{ background:"transparent", border:"none", color:C.muted, fontSize:18, cursor:"pointer", padding:"2px 6px" }}>✕</button>}
                     </div>
-                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom: isAdmin && !v.replacedBy ? 8 : 0 }}>
                       {isAdmin ? (
-                        <button onClick={()=>toggleAvailability(v.plate)} className="tap"
-                          style={{ ...badge(v.available), cursor:"pointer", padding:"5px 12px", fontSize:11 }}>
+                        <button onClick={()=>!v.replacedBy && toggleAvailability(v.plate)} className="tap"
+                          style={{ ...badge(v.available), cursor: v.replacedBy ? "default" : "pointer", padding:"5px 12px", fontSize:11, opacity: v.replacedBy ? 0.6 : 1 }}>
                           <span style={{ width:6, height:6, borderRadius:"50%", background: v.available ? C.green : C.red, display:"inline-block" }} />
-                          {v.available ? "Disponible" : "No Disponible"}
+                          {v.replacedBy ? `Reemplazado → ${v.replacedBy}` : v.available ? "Disponible" : "No Disponible"}
                         </button>
                       ) : (
                         <span style={{ ...badge(v.available), padding:"5px 12px", fontSize:11 }}>
                           <span style={{ width:6, height:6, borderRadius:"50%", background: v.available ? C.green : C.red, display:"inline-block" }} />
-                          {v.available ? "Disponible" : "No Disponible"}
+                          {v.replacedBy ? `→ ${v.replacedBy}` : v.available ? "Disponible" : "No Disponible"}
                         </span>
                       )}
                       <div style={{ display:"flex", gap:12 }}>
@@ -511,6 +574,33 @@ export default function App() {
                         ))}
                       </div>
                     </div>
+                    {/* Replacement UI - admin only */}
+                    {isAdmin && !v.replacedBy && (
+                      <div style={{ display:"flex", gap:6, marginTop:6 }}>
+                        <input
+                          value={replaceInput[v.plate] || ""}
+                          onChange={e => setReplaceInput(prev => ({ ...prev, [v.plate]: e.target.value }))}
+                          onKeyDown={e => e.key === "Enter" && applyReplacement(v.plate)}
+                          placeholder="Placa reemplazo (opcional)"
+                          style={{ flex:1, background:C.surface, border:`1px solid ${C.border}`, borderRadius:7, padding:"7px 10px", color:C.text, fontSize:12, outline:"none", textTransform:"uppercase" }}
+                        />
+                        <button onClick={() => applyReplacement(v.plate)}
+                          disabled={!(replaceInput[v.plate] || "").trim()}
+                          className="tap"
+                          style={{ background: (replaceInput[v.plate]||"").trim() ? C.orange : C.border, color:"#fff", border:"none", borderRadius:7, padding:"7px 12px", fontSize:12, fontWeight:700, cursor:(replaceInput[v.plate]||"").trim()?"pointer":"not-allowed" }}>
+                          ↔ Reemplazar
+                        </button>
+                      </div>
+                    )}
+                    {/* Clear replacement button */}
+                    {isAdmin && v.replacedBy && (
+                      <div style={{ marginTop:6 }}>
+                        <button onClick={() => clearReplacement(v.plate)} className="tap"
+                          style={{ background:"transparent", border:`1px solid ${C.border}`, borderRadius:7, padding:"5px 12px", color:C.muted, fontSize:11, cursor:"pointer", fontWeight:600 }}>
+                          ✕ Quitar reemplazo
+                        </button>
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -720,6 +810,102 @@ export default function App() {
                 </ResponsiveContainer>
               )}
             </div>
+            {/* Monthly comparison chart */}
+            <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:"14px 8px", marginBottom:16 }}>
+              <div style={{ fontWeight:700, fontSize:13, marginBottom:4, paddingLeft:8 }}>Comparativo Mensual de Cargues</div>
+              <div style={{ fontSize:11, color:C.muted, marginBottom:12, paddingLeft:8 }}>Total cargados por mes</div>
+              {(() => {
+                const monthlyMap = {};
+                Object.entries(schedules).forEach(([date, ds]) => {
+                  const d = new Date(date + "T12:00:00");
+                  const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+                  const label = MONTHS_ES[d.getMonth()].slice(0,3) + "\n" + d.getFullYear();
+                  if (!monthlyMap[key]) monthlyMap[key] = { label, total: 0, prog: 0 };
+                  monthlyMap[key].total += ds.filter(v => v.loaded).length;
+                  monthlyMap[key].prog += ds.length;
+                });
+                const monthlyArr = Object.entries(monthlyMap)
+                  .sort(([a],[b]) => a.localeCompare(b))
+                  .map(([, v]) => v);
+                if (monthlyArr.length === 0) return (
+                  <div style={{ textAlign:"center", padding:"28px", color:C.muted, fontSize:13 }}>Sin datos mensuales aún</div>
+                );
+                const data = monthlyArr.map(m => ({ name: m.label.replace("\n"," "), programados: m.prog, cargados: m.total }));
+                return (
+                  <ResponsiveContainer width="100%" height={240}>
+                    <BarChart data={data} margin={{ top:0, right:4, left:-16, bottom:20 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
+                      <XAxis dataKey="name" tick={{ fill:C.muted, fontSize:9 }} axisLine={{ stroke:C.border }} tickLine={false} angle={-35} textAnchor="end" interval={0} />
+                      <YAxis tick={{ fill:C.muted, fontSize:10 }} axisLine={false} tickLine={false} />
+                      <Tooltip contentStyle={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, fontSize:12, color:C.text }} />
+                      <Legend wrapperStyle={{ fontSize:11, color:C.muted }} />
+                      <Bar dataKey="programados" name="Programados" fill={C.blue} radius={[4,4,0,0]} />
+                      <Bar dataKey="cargados" name="Cargados" fill={C.green} radius={[4,4,0,0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                );
+              })()}
+              {/* Monthly totals table */}
+              {(() => {
+                const monthlyMap = {};
+                Object.entries(schedules).forEach(([date, ds]) => {
+                  const d = new Date(date + "T12:00:00");
+                  const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+                  const label = MONTHS_ES[d.getMonth()] + " " + d.getFullYear();
+                  if (!monthlyMap[key]) monthlyMap[key] = { label, total: 0, prog: 0 };
+                  monthlyMap[key].total += ds.filter(v => v.loaded).length;
+                  monthlyMap[key].prog += ds.length;
+                });
+                const monthlyArr = Object.entries(monthlyMap).sort(([a],[b]) => a.localeCompare(b)).map(([,v]) => v);
+                if (monthlyArr.length === 0) return null;
+                const grandTotal = monthlyArr.reduce((s, m) => s + m.total, 0);
+                const grandProg = monthlyArr.reduce((s, m) => s + m.prog, 0);
+                return (
+                  <div style={{ marginTop:14, overflowX:"auto" }}>
+                    <table style={{ width:"100%", borderCollapse:"collapse", fontSize:12, fontFamily:"inherit" }}>
+                      <thead>
+                        <tr style={{ background:C.surface }}>
+                          {["Mes","Programados","Cargados","% Cump."].map(h => (
+                            <th key={h} style={{ padding:"8px 10px", textAlign:"left", fontSize:10, color:C.muted, textTransform:"uppercase", letterSpacing:"0.06em", borderBottom:`1px solid ${C.border}` }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {monthlyArr.map((m, i) => {
+                          const eff = m.prog > 0 ? Math.round((m.total/m.prog)*100) : 0;
+                          return (
+                            <tr key={i} style={{ borderBottom:`1px solid ${C.border}`, background: i%2===0?"transparent":C.surface+"44" }}>
+                              <td style={{ padding:"9px 10px", fontWeight:700, color:C.text }}>{m.label}</td>
+                              <td style={{ padding:"9px 10px", color:C.blue, fontWeight:600 }}>{m.prog}</td>
+                              <td style={{ padding:"9px 10px", color:C.green, fontWeight:600 }}>{m.total}</td>
+                              <td style={{ padding:"9px 10px" }}>
+                                <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                                  <div style={{ flex:1, height:5, background:C.border, borderRadius:3, overflow:"hidden" }}>
+                                    <div style={{ width:`${eff}%`, height:"100%", background: eff>=80?C.green:eff>=50?C.yellowGreen:C.red, borderRadius:3 }} />
+                                  </div>
+                                  <span style={{ fontSize:11, fontWeight:700, color: eff>=80?C.green:eff>=50?C.yellowGreen:C.muted, minWidth:30 }}>{eff}%</span>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                      <tfoot>
+                        <tr style={{ background:C.surface, borderTop:`2px solid ${C.border}` }}>
+                          <td style={{ padding:"9px 10px", fontWeight:800, color:C.text }}>TOTAL</td>
+                          <td style={{ padding:"9px 10px", fontWeight:800, color:C.blue }}>{grandProg}</td>
+                          <td style={{ padding:"9px 10px", fontWeight:800, color:C.green }}>{grandTotal}</td>
+                          <td style={{ padding:"9px 10px", fontWeight:800, color:C.yellowGreen }}>
+                            {grandProg > 0 ? Math.round((grandTotal/grandProg)*100) : 0}%
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                );
+              })()}
+            </div>
+
             <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, overflow:"hidden" }}>
               <div style={{ padding:"11px 14px", borderBottom:`1px solid ${C.border}`, fontSize:13, fontWeight:700 }}>Por Vehículo</div>
               {vehicles.map((v,i)=>{
