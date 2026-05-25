@@ -280,17 +280,45 @@ export default function App() {
       const today = new Date();
       const reportDate = `${today.getDate()}/${today.getMonth()+1}/${today.getFullYear()}`;
 
-      const barW = days.length > 0 ? Math.min(40, Math.floor(500 / days.length)) : 40;
-      const chartH = 180;
+      // SVG chart dimensions
+      const svgW = 520, svgH = 200, padL = 30, padB = 50, padT = 20, padR = 10;
+      const chartW = svgW - padL - padR;
+      const chartH2 = svgH - padT - padB;
 
-      const barsHtml = days.map(day => {
-        const h = Math.round((day.cargados / maxVal) * chartH * 0.85);
-        return `<div style="display:flex;flex-direction:column;align-items:center;gap:2px;flex:1;min-width:${barW}px;">
-          <span style="font-size:9px;font-weight:bold;color:#333">${day.cargados}</span>
-          <div style="width:${barW-6}px;height:${h}px;background:#1a56c4;border-radius:3px 3px 0 0;"></div>
-          <span style="font-size:7px;color:#666;writing-mode:vertical-rl;transform:rotate(180deg);height:32px;line-height:1;">${day.label}</span>
-        </div>`;
-      }).join("");
+      const buildSVGBars = (dataArr, color) => {
+        if (dataArr.length === 0) return `<svg width="${svgW}" height="${svgH}"><text x="${svgW/2}" y="${svgH/2}" text-anchor="middle" fill="#999" font-size="13">Sin datos</text></svg>`;
+        const maxV = Math.max(...dataArr.map(d => d.val), 1);
+        const bW = Math.min(36, Math.floor(chartW / dataArr.length) - 4);
+        const gap = (chartW - bW * dataArr.length) / (dataArr.length + 1);
+        const yLines = [0, 0.25, 0.5, 0.75, 1].map(p => Math.round(maxV * p));
+        let svg = `<svg width="${svgW}" height="${svgH}" xmlns="http://www.w3.org/2000/svg" style="font-family:Arial,sans-serif;">`;
+        // Grid lines
+        yLines.forEach(v => {
+          const y = padT + chartH2 - Math.round((v/maxV)*chartH2);
+          svg += `<line x1="${padL}" y1="${y}" x2="${svgW-padR}" y2="${y}" stroke="#ddd" stroke-width="1"/>`;
+          svg += `<text x="${padL-4}" y="${y+4}" text-anchor="end" font-size="9" fill="#999">${v}</text>`;
+        });
+        // X axis
+        svg += `<line x1="${padL}" y1="${padT+chartH2}" x2="${svgW-padR}" y2="${padT+chartH2}" stroke="#999" stroke-width="1.5"/>`;
+        // Bars
+        dataArr.forEach((d, i) => {
+          const x = padL + gap + i * (bW + gap);
+          const bH = Math.max(2, Math.round((d.val / maxV) * chartH2));
+          const y = padT + chartH2 - bH;
+          svg += `<rect x="${x}" y="${y}" width="${bW}" height="${bH}" fill="${color}" rx="2"/>`;
+          svg += `<text x="${x + bW/2}" y="${y - 3}" text-anchor="middle" font-size="9" font-weight="bold" fill="#333">${d.val}</text>`;
+          // Label rotated
+          const lx = x + bW/2; const ly = padT + chartH2 + 8;
+          svg += `<text transform="rotate(-40,${lx},${ly})" x="${lx}" y="${ly}" text-anchor="end" font-size="7.5" fill="#666">${d.label}</text>`;
+        });
+        svg += `</svg>`;
+        return svg;
+      };
+
+      const dailySVG = buildSVGBars(days.map(d => ({ val: d.cargados, label: d.label })), "#1a56c4");
+      const monthlySVG = buildSVGBars(monthlyArr.map(m => ({ val: m.total, label: m.label })), "#b5c832");
+
+      const chartH = 180;
 
       // Build monthly comparison data (last 12 months)
       const monthlyMap = {};
@@ -307,14 +335,6 @@ export default function App() {
         .map(([,v]) => v);
       const maxMonth = Math.max(...monthlyArr.map(m => m.total), 1);
       const mBarW = monthlyArr.length > 0 ? Math.min(55, Math.floor(500 / monthlyArr.length)) : 55;
-      const monthlyBarsHtml = monthlyArr.map(m => {
-        const h = Math.round((m.total / maxMonth) * chartH * 0.85);
-        return `<div style="display:flex;flex-direction:column;align-items:center;gap:2px;flex:1;min-width:${mBarW}px;">
-          <span style="font-size:9px;font-weight:bold;color:#333">${m.total}</span>
-          <div style="width:${mBarW-8}px;height:${h}px;background:#b5c832;border-radius:3px 3px 0 0;"></div>
-          <span style="font-size:8px;color:#666;text-align:center;line-height:1.2;">${m.label}</span>
-        </div>`;
-      }).join("");
 
       // Vehicle availability % for the PDF report month range
       const pdfMonthTotal = days.reduce((s, d) => s + d.cargados, 0);
@@ -336,9 +356,10 @@ export default function App() {
         return `<tr>
           <td style="padding:5px 8px;font-weight:bold;font-size:10px;white-space:nowrap;">${v.plate}</td>
           <td style="padding:5px 8px;width:100%;">
-            <div style="background:#eee;border-radius:4px;height:14px;overflow:hidden;">
-              <div style="width:${v.pct}%;height:100%;background:${v.pct>=20?"#4ade80":v.pct>=10?"#b5c832":"#1a56c4"};border-radius:4px;"></div>
-            </div>
+            <svg width="200" height="14" xmlns="http://www.w3.org/2000/svg">
+              <rect x="0" y="0" width="200" height="14" fill="#eeeeee" rx="3"/>
+              <rect x="0" y="0" width="${Math.round(v.pct*2)}" height="14" fill="${v.pct>=20?"#4ade80":v.pct>=10?"#b5c832":"#1a56c4"}" rx="3"/>
+            </svg>
           </td>
           <td style="padding:5px 8px;font-size:10px;font-weight:bold;color:#1a56c4;white-space:nowrap;">${v.loaded} cargues</td>
           <td style="padding:5px 8px;font-size:11px;font-weight:900;color:#b5c832;white-space:nowrap;">${v.pct}%</td>
@@ -361,7 +382,7 @@ export default function App() {
         .item{margin:3px 0 3px 20px;font-size:10px;}
         .chart-wrap{border:1px solid #ddd;border-radius:4px;padding:16px;margin:12px 0;}
         .chart-title{text-align:center;font-weight:bold;font-size:12px;margin-bottom:12px;}
-        .bars{display:flex;align-items:flex-end;justify-content:center;gap:2px;height:${chartH}px;border-bottom:2px solid #999;}
+        .bars{display:flex;align-items:flex-end;justify-content:center;gap:2px;height:200px;border-bottom:2px solid #999;}
         table{border-collapse:collapse;margin:0 auto;}
         th{background:#1a56c4;color:#fff;padding:6px 24px;font-size:11px;}
         tfoot td{font-weight:bold;background:#f0f0f0;border:1px solid #ccc;padding:6px 12px;text-align:center;}
@@ -386,14 +407,14 @@ export default function App() {
       <p class="section-title">3. INDICADORES: cargue de vehículos del ${fromLabel} al ${toLabel}</p>
       <div class="chart-wrap">
         <div class="chart-title">CARGUES POR DÍA</div>
-        <div class="bars">${barsHtml}</div>
-        <div style="text-align:center;margin-top:8px;font-size:9px;color:#555;">■ VIAJES</div>
+        ${dailySVG}
+        <div style="text-align:center;margin-top:4px;font-size:9px;color:#555;">■ CARGUES</div>
       </div>
       <p class="section-title">4. COMPARATIVO MENSUAL DE CARGUES</p>
       <div class="chart-wrap">
         <div class="chart-title">CARGUES POR MES</div>
-        <div class="bars">${monthlyBarsHtml}</div>
-        <div style="text-align:center;margin-top:8px;font-size:9px;color:#555;">■ TOTAL CARGUES POR MES</div>
+        ${monthlySVG}
+        <div style="text-align:center;margin-top:4px;font-size:9px;color:#555;">■ TOTAL CARGUES POR MES</div>
       </div>
       <p class="section-title">5. INDICADOR: DEL ${fromLabel.toUpperCase()} A ${toLabel.toUpperCase()}</p>
       <table>
