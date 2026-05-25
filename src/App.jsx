@@ -603,7 +603,7 @@ export default function App() {
                     )}
                   </div>
                 );
-              })}
+              })})()}
             </div>
           </div>
         )}
@@ -865,14 +865,14 @@ export default function App() {
                     <table style={{ width:"100%", borderCollapse:"collapse", fontSize:12, fontFamily:"inherit" }}>
                       <thead>
                         <tr style={{ background:C.surface }}>
-                          {["Mes","Programados","Cargados","% Cump."].map(h => (
+                          {["Mes","Programados","Cargados","% del Total"].map(h => (
                             <th key={h} style={{ padding:"8px 10px", textAlign:"left", fontSize:10, color:C.muted, textTransform:"uppercase", letterSpacing:"0.06em", borderBottom:`1px solid ${C.border}` }}>{h}</th>
                           ))}
                         </tr>
                       </thead>
                       <tbody>
                         {monthlyArr.map((m, i) => {
-                          const eff = m.prog > 0 ? Math.round((m.total/m.prog)*100) : 0;
+                          const eff = grandTotal > 0 ? Math.round((m.total/grandTotal)*100) : 0;
                           return (
                             <tr key={i} style={{ borderBottom:`1px solid ${C.border}`, background: i%2===0?"transparent":C.surface+"44" }}>
                               <td style={{ padding:"9px 10px", fontWeight:700, color:C.text }}>{m.label}</td>
@@ -881,9 +881,9 @@ export default function App() {
                               <td style={{ padding:"9px 10px" }}>
                                 <div style={{ display:"flex", alignItems:"center", gap:6 }}>
                                   <div style={{ flex:1, height:5, background:C.border, borderRadius:3, overflow:"hidden" }}>
-                                    <div style={{ width:`${eff}%`, height:"100%", background: eff>=80?C.green:eff>=50?C.yellowGreen:C.red, borderRadius:3 }} />
+                                    <div style={{ width:`${eff}%`, height:"100%", background: eff>=25?C.green:eff>=10?C.yellowGreen:C.red, borderRadius:3 }} />
                                   </div>
-                                  <span style={{ fontSize:11, fontWeight:700, color: eff>=80?C.green:eff>=50?C.yellowGreen:C.muted, minWidth:30 }}>{eff}%</span>
+                                  <span style={{ fontSize:11, fontWeight:700, color: eff>=25?C.green:eff>=10?C.yellowGreen:C.muted, minWidth:30 }}>{eff}%</span>
                                 </div>
                               </td>
                             </tr>
@@ -896,7 +896,7 @@ export default function App() {
                           <td style={{ padding:"9px 10px", fontWeight:800, color:C.blue }}>{grandProg}</td>
                           <td style={{ padding:"9px 10px", fontWeight:800, color:C.green }}>{grandTotal}</td>
                           <td style={{ padding:"9px 10px", fontWeight:800, color:C.yellowGreen }}>
-                            {grandProg > 0 ? Math.round((grandTotal/grandProg)*100) : 0}%
+                            100%
                           </td>
                         </tr>
                       </tfoot>
@@ -908,9 +908,27 @@ export default function App() {
 
             <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, overflow:"hidden" }}>
               <div style={{ padding:"11px 14px", borderBottom:`1px solid ${C.border}`, fontSize:13, fontWeight:700 }}>Por Vehículo</div>
-              {vehicles.map((v,i)=>{
+              {(() => {
+                // Total cargados en el mes seleccionado
+                const monthTotal = Object.entries(schedules)
+                  .filter(([date]) => {
+                    const d = new Date(date + "T12:00:00");
+                    return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+                  })
+                  .reduce((sum, [, ds]) => sum + ds.filter(v => v.loaded).length, 0);
+                return vehicles.map((v,i)=>{
                 const t=vehicleTotals[v.plate]||{};
-                const eff=t.scheduled?Math.round((t.loaded/t.scheduled)*100):0;
+                // Cargados de este vehículo en el mes seleccionado
+                const vehicleMonthLoaded = Object.entries(schedules)
+                  .filter(([date]) => {
+                    const d = new Date(date + "T12:00:00");
+                    return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+                  })
+                  .reduce((sum, [, ds]) => {
+                    const found = ds.find(s => s.plate === v.plate);
+                    return sum + (found && found.loaded ? 1 : 0);
+                  }, 0);
+                const eff = monthTotal > 0 ? Math.round((vehicleMonthLoaded / monthTotal) * 100) : 0;
                 return (
                   <div key={v.plate} style={{ padding:"11px 14px", borderBottom:`1px solid ${C.border}`, background:i%2===0?"transparent":C.surface+"44" }}>
                     <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:7 }}>
@@ -938,7 +956,8 @@ export default function App() {
                     </div>
                   </div>
                 );
-              })}
+              });
+              })()}
             </div>
           </div>
         )}
