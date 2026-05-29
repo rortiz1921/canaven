@@ -63,6 +63,8 @@ export default function App() {
   const [pdfFrom, setPdfFrom] = useState(getTodayStr());
   const [pdfTo, setPdfTo] = useState(getTodayStr());
   const [pdfObs, setPdfObs] = useState("");
+  const [csvFrom, setCsvFrom] = useState(getTodayStr());
+  const [csvTo, setCsvTo] = useState(getTodayStr());
   const [generatingPdf, setGeneratingPdf] = useState(false);
   // Load confirm modal
   const [confirmModal, setConfirmModal] = useState(null); // {plate}
@@ -210,15 +212,12 @@ export default function App() {
   const sendWhatsApp=()=>window.open(`https://chat.whatsapp.com/LCkWONNBkq41X0mWV9feOF?text=${encodeURIComponent(buildWhatsAppText())}`,"_blank");
 
   // CSV
-  const downloadCSV=(rangeType)=>{
+  const downloadCSV=()=>{
     const rows=[["Fecha","Dia","Placa","Propietario","Estado","Hora Cargue","Fecha Cargue","No. Guia","Volumen","Observaciones"]];
     const allDates=Object.keys(schedules).sort();
-    const wDates=getWeekDates(selectedDate);
-    const cMonth=new Date(selectedDate+"T12:00:00").getMonth();
-    const cYear=new Date(selectedDate+"T12:00:00").getFullYear();
-    let filtered=allDates;
-    if(rangeType==="week")filtered=allDates.filter(d=>wDates.includes(d));
-    else if(rangeType==="month")filtered=allDates.filter(d=>{const dt=new Date(d+"T12:00:00");return dt.getMonth()===cMonth&&dt.getFullYear()===cYear;});
+    const from=new Date(csvFrom+"T00:00:00");
+    const to=new Date(csvTo+"T23:59:59");
+    const filtered=allDates.filter(d=>{const dt=new Date(d+"T12:00:00");return dt>=from&&dt<=to;});
     filtered.forEach(date=>{
       const d=new Date(date+"T12:00:00");
       const dayName=DAYS_ES[d.getDay()];
@@ -233,7 +232,7 @@ export default function App() {
     const blob=new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8;"});
     const url=URL.createObjectURL(blob);
     const a=document.createElement("a");
-    a.href=url;a.download=`canaven_${rangeType}_${selectedDate}.csv`;a.click();
+    a.href=url;a.download=`canaven_${csvFrom}_${csvTo}.csv`;a.click();
     URL.revokeObjectURL(url);
   };
 
@@ -623,16 +622,24 @@ export default function App() {
               ))}
             </div>
             {/* CSV */}
-            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"12px 14px",marginBottom:14}}>
-              <div style={{fontSize:11,color:C.muted,marginBottom:10,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em"}}>⬇️ Descargar CSV</div>
-              <div style={{display:"flex",gap:8}}>
-                {[["Semana","week"],["Mes","month"],["Todo","all"]].map(([label,type])=>(
-                  <button key={type} onClick={()=>downloadCSV(type)} className="tap"
-                    style={{flex:1,background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 4px",color:C.yellowGreen,cursor:"pointer",fontSize:12,fontWeight:700,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
-                    <span style={{fontSize:16}}>📥</span><span>{label}</span>
-                  </button>
-                ))}
+            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"14px",marginBottom:14}}>
+              <div style={{fontSize:11,color:C.muted,marginBottom:10,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em"}}>⬇️ Descargar CSV de Cargues</div>
+              <div style={{display:"flex",gap:8,marginBottom:10}}>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:10,color:C.muted,marginBottom:4}}>Desde</div>
+                  <input type="date" value={csvFrom} onChange={e=>setCsvFrom(e.target.value)}
+                    style={{width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 10px",color:C.text,fontSize:12,outline:"none"}}/>
+                </div>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:10,color:C.muted,marginBottom:4}}>Hasta</div>
+                  <input type="date" value={csvTo} onChange={e=>setCsvTo(e.target.value)}
+                    style={{width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 10px",color:C.text,fontSize:12,outline:"none"}}/>
+                </div>
               </div>
+              <button onClick={downloadCSV} className="tap"
+                style={{width:"100%",background:C.yellowGreen,color:"#111",border:"none",borderRadius:10,padding:"11px 0",fontSize:14,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+                <span style={{fontSize:18}}>📥</span> Descargar CSV
+              </button>
             </div>
             {/* PDF */}
             <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"14px",marginBottom:14}}>
