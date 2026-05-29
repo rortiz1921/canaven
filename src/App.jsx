@@ -90,13 +90,35 @@ export default function App() {
 
   const badge = (ok)=>({display:"inline-flex",alignItems:"center",gap:4,padding:"3px 9px",borderRadius:20,fontSize:10,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",background:ok?C.green+"22":C.red+"22",color:ok?C.green:C.red,border:`1px solid ${ok?C.green+"55":C.red+"55"}`});
 
-  // Firebase sync
+  // Firebase sync with timeout fallback
   useEffect(()=>{
-    const unsub = onSnapshot(doc(db,"canaven","data"),(snap)=>{
-      if(snap.exists()){const data=snap.data();if(data.vehicles)setVehicles(data.vehicles);if(data.schedules)setSchedules(data.schedules);}
+    // Fallback: if Firebase takes too long, load anyway
+    const timeout = setTimeout(()=>{
       setLoaded(true);
-    });
-    return ()=>unsub();
+    }, 4000);
+
+    let unsub;
+    try {
+      unsub = onSnapshot(doc(db,"canaven","data"),(snap)=>{
+        clearTimeout(timeout);
+        if(snap.exists()){
+          const data=snap.data();
+          if(data.vehicles)setVehicles(data.vehicles);
+          if(data.schedules)setSchedules(data.schedules);
+        }
+        setLoaded(true);
+      }, (error)=>{
+        // Firebase error - load with defaults
+        console.error("Firebase error:", error);
+        clearTimeout(timeout);
+        setLoaded(true);
+      });
+    } catch(e) {
+      console.error("Firebase init error:", e);
+      clearTimeout(timeout);
+      setLoaded(true);
+    }
+    return ()=>{ clearTimeout(timeout); if(unsub) unsub(); };
   },[]);
 
   const saveToFirestore = async(v,s)=>{
@@ -295,10 +317,7 @@ export default function App() {
 
   const TABS=[{id:"fleet",icon:"🚗",label:"Flota"},{id:"schedule",icon:"📅",label:"Programar"},{id:"reports",icon:"📊",label:"Informes"}];
 
-  // Loading screen
-  if(!loaded)return(<div style={{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:16}}><CanavenLogo/><div style={{color:C.muted,fontSize:13,marginTop:8}}>Cargando datos...</div><div style={{width:40,height:40,border:`3px solid ${C.border}`,borderTop:`3px solid ${C.blue}`,borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/><style>{`@keyframes spin{to{transform:rotate(360deg);}}`}</style></div>);
-
-  // PIN screen
+  // PIN screen FIRST (so user always sees login, not black screen)
   if(!authed)return(
     <div style={{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"24px"}}>
       <style>{`@keyframes shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-8px)}40%,80%{transform:translateX(8px)}}`}</style>
@@ -328,6 +347,16 @@ export default function App() {
         </div>
         <div style={{textAlign:"center",marginTop:20,fontSize:11,color:C.muted}}>CANAVEN Transportes de Colombia SAS</div>
       </div>
+    </div>
+  );
+
+  // Loading screen (after PIN so login always shows first)
+  if(!loaded)return(
+    <div style={{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:16}}>
+      <CanavenLogo/>
+      <div style={{color:C.muted,fontSize:13,marginTop:8}}>Cargando datos...</div>
+      <div style={{width:40,height:40,border:`3px solid ${C.border}`,borderTop:`3px solid ${C.blue}`,borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>
+      <style>{`@keyframes spin{to{transform:rotate(360deg);}}`}</style>
     </div>
   );
 
