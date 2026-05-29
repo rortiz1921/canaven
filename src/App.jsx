@@ -90,13 +90,35 @@ export default function App() {
 
   const badge = (ok)=>({display:"inline-flex",alignItems:"center",gap:4,padding:"3px 9px",borderRadius:20,fontSize:10,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",background:ok?C.green+"22":C.red+"22",color:ok?C.green:C.red,border:`1px solid ${ok?C.green+"55":C.red+"55"}`});
 
-  // Firebase sync
+  // Firebase sync with timeout fallback
   useEffect(()=>{
-    const unsub = onSnapshot(doc(db,"canaven","data"),(snap)=>{
-      if(snap.exists()){const data=snap.data();if(data.vehicles)setVehicles(data.vehicles);if(data.schedules)setSchedules(data.schedules);}
+    // Fallback: if Firebase takes too long, load anyway
+    const timeout = setTimeout(()=>{
       setLoaded(true);
-    });
-    return ()=>unsub();
+    }, 4000);
+
+    let unsub;
+    try {
+      unsub = onSnapshot(doc(db,"canaven","data"),(snap)=>{
+        clearTimeout(timeout);
+        if(snap.exists()){
+          const data=snap.data();
+          if(data.vehicles)setVehicles(data.vehicles);
+          if(data.schedules)setSchedules(data.schedules);
+        }
+        setLoaded(true);
+      }, (error)=>{
+        // Firebase error - load with defaults
+        console.error("Firebase error:", error);
+        clearTimeout(timeout);
+        setLoaded(true);
+      });
+    } catch(e) {
+      console.error("Firebase init error:", e);
+      clearTimeout(timeout);
+      setLoaded(true);
+    }
+    return ()=>{ clearTimeout(timeout); if(unsub) unsub(); };
   },[]);
 
   const saveToFirestore = async(v,s)=>{
@@ -295,42 +317,6 @@ export default function App() {
 
   const TABS=[{id:"fleet",icon:"🚗",label:"Flota"},{id:"schedule",icon:"📅",label:"Programar"},{id:"reports",icon:"📊",label:"Informes"}];
 
-  // Loading screen
-  if(!loaded)return(<div style={{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:16}}><CanavenLogo/><div style={{color:C.muted,fontSize:13,marginTop:8}}>Cargando datos...</div><div style={{width:40,height:40,border:`3px solid ${C.border}`,borderTop:`3px solid ${C.blue}`,borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/><style>{`@keyframes spin{to{transform:rotate(360deg);}}`}</style></div>);
-
-  // PIN screen
-  if(!authed)return(
-    <div style={{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"24px"}}>
-      <style>{`@keyframes shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-8px)}40%,80%{transform:translateX(8px)}}`}</style>
-      <div style={{width:"100%",maxWidth:320}}>
-        <div style={{display:"flex",justifyContent:"center",marginBottom:32}}><CanavenLogo/></div>
-        <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:20,padding:"32px 24px",textAlign:"center"}}>
-          <div style={{fontSize:44,marginBottom:12}}>🔒</div>
-          <div style={{fontSize:18,fontWeight:800,color:C.text,marginBottom:6}}>Acceso Protegido</div>
-          <div style={{fontSize:13,color:C.muted,marginBottom:8}}>Ingresa tu PIN para continuar</div>
-          <div style={{display:"flex",gap:8,justifyContent:"center",marginBottom:20}}>
-            <span style={{background:C.blue+"22",color:C.blue,border:`1px solid ${C.blue}44`,borderRadius:20,padding:"3px 10px",fontSize:11,fontWeight:700}}>⚙️ Admin</span>
-            <span style={{background:C.green+"22",color:C.green,border:`1px solid ${C.green}44`,borderRadius:20,padding:"3px 10px",fontSize:11,fontWeight:700}}>👁️ Visitante</span>
-          </div>
-          <div style={{display:"flex",justifyContent:"center",gap:12,marginBottom:24}}>
-            {[0,1,2,3].map(i=>(<div key={i} style={{width:14,height:14,borderRadius:"50%",background:pinInput.length>i?C.blue:C.border,transition:"background 0.15s"}}/>))}
-          </div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:16}}>
-            {["1","2","3","4","5","6","7","8","9","","0","⌫"].map((k,i)=>(
-              <button key={i} onClick={()=>{if(k==="⌫"){setPinInput(p=>p.slice(0,-1));setPinError(false);}else if(k===""||pinInput.length>=4)return;else setPinInput(p=>p+k);}}
-                style={{background:k===""?"transparent":pinError?C.red+"22":C.surface,border:`1px solid ${k===""?"transparent":pinError?C.red+"55":C.border}`,borderRadius:12,padding:"16px 0",fontSize:20,fontWeight:700,color:k==="⌫"?C.muted:C.text,cursor:k===""?"default":"pointer"}} disabled={k===""}>
-                {k}
-              </button>
-            ))}
-          </div>
-          {pinError&&<div style={{color:C.red,fontSize:13,fontWeight:600,marginBottom:12}}>PIN incorrecto.</div>}
-          <button onClick={handleLogin} disabled={pinInput.length<4} style={{width:"100%",background:pinInput.length===4?C.blue:C.border,color:pinInput.length===4?"#fff":C.muted,border:"none",borderRadius:12,padding:"14px 0",fontSize:16,fontWeight:700,cursor:pinInput.length===4?"pointer":"not-allowed"}}>Ingresar</button>
-        </div>
-        <div style={{textAlign:"center",marginTop:20,fontSize:11,color:C.muted}}>CANAVEN Transportes de Colombia SAS</div>
-      </div>
-    </div>
-  );
-
   // --- Build PDF report data ---
   const pdfReportData = useMemo(() => {
     const from = new Date(pdfFrom + "T12:00:00");
@@ -474,6 +460,50 @@ export default function App() {
       </div>
     );
   };
+
+  // PIN screen FIRST (so user always sees login, not black screen)
+  if(!authed)return(
+    <div style={{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"24px"}}>
+      <style>{`@keyframes shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-8px)}40%,80%{transform:translateX(8px)}}`}</style>
+      <div style={{width:"100%",maxWidth:320}}>
+        <div style={{display:"flex",justifyContent:"center",marginBottom:32}}><CanavenLogo/></div>
+        <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:20,padding:"32px 24px",textAlign:"center"}}>
+          <div style={{fontSize:44,marginBottom:12}}>🔒</div>
+          <div style={{fontSize:18,fontWeight:800,color:C.text,marginBottom:6}}>Acceso Protegido</div>
+          <div style={{fontSize:13,color:C.muted,marginBottom:8}}>Ingresa tu PIN para continuar</div>
+          <div style={{display:"flex",gap:8,justifyContent:"center",marginBottom:20}}>
+            <span style={{background:C.blue+"22",color:C.blue,border:`1px solid ${C.blue}44`,borderRadius:20,padding:"3px 10px",fontSize:11,fontWeight:700}}>⚙️ Admin</span>
+            <span style={{background:C.green+"22",color:C.green,border:`1px solid ${C.green}44`,borderRadius:20,padding:"3px 10px",fontSize:11,fontWeight:700}}>👁️ Visitante</span>
+          </div>
+          <div style={{display:"flex",justifyContent:"center",gap:12,marginBottom:24}}>
+            {[0,1,2,3].map(i=>(<div key={i} style={{width:14,height:14,borderRadius:"50%",background:pinInput.length>i?C.blue:C.border,transition:"background 0.15s"}}/>))}
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:16}}>
+            {["1","2","3","4","5","6","7","8","9","","0","⌫"].map((k,i)=>(
+              <button key={i} onClick={()=>{if(k==="⌫"){setPinInput(p=>p.slice(0,-1));setPinError(false);}else if(k===""||pinInput.length>=4)return;else setPinInput(p=>p+k);}}
+                style={{background:k===""?"transparent":pinError?C.red+"22":C.surface,border:`1px solid ${k===""?"transparent":pinError?C.red+"55":C.border}`,borderRadius:12,padding:"16px 0",fontSize:20,fontWeight:700,color:k==="⌫"?C.muted:C.text,cursor:k===""?"default":"pointer"}} disabled={k===""}>
+                {k}
+              </button>
+            ))}
+          </div>
+          {pinError&&<div style={{color:C.red,fontSize:13,fontWeight:600,marginBottom:12}}>PIN incorrecto.</div>}
+          <button onClick={handleLogin} disabled={pinInput.length<4} style={{width:"100%",background:pinInput.length===4?C.blue:C.border,color:pinInput.length===4?"#fff":C.muted,border:"none",borderRadius:12,padding:"14px 0",fontSize:16,fontWeight:700,cursor:pinInput.length===4?"pointer":"not-allowed"}}>Ingresar</button>
+        </div>
+        <div style={{textAlign:"center",marginTop:20,fontSize:11,color:C.muted}}>CANAVEN Transportes de Colombia SAS</div>
+      </div>
+    </div>
+  );
+
+  // Loading screen (after PIN so login always shows first)
+  if(!loaded)return(
+    <div style={{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:16}}>
+      <CanavenLogo/>
+      <div style={{color:C.muted,fontSize:13,marginTop:8}}>Cargando datos...</div>
+      <div style={{width:40,height:40,border:`3px solid ${C.border}`,borderTop:`3px solid ${C.blue}`,borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>
+      <style>{`@keyframes spin{to{transform:rotate(360deg);}}`}</style>
+    </div>
+  );
+
 
   return(
     <div style={{minHeight:"100vh",background:C.bg,color:C.text,fontFamily:"'Segoe UI',Arial,sans-serif",paddingBottom:80}}>
