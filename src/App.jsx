@@ -69,7 +69,6 @@ export default function App() {
   const [csvTo, setCsvTo] = useState(getTodayStr());
   const [generatingPdf, setGeneratingPdf] = useState(false);
   const [showPdfPreview, setShowPdfPreview] = useState(false);
-  const [showPdfModal, setShowPdfModal] = useState(false);
   const pdfRef = useRef(null);
   // Load confirm modal
   const [confirmModal, setConfirmModal] = useState(null); // {plate}
@@ -90,35 +89,13 @@ export default function App() {
 
   const badge = (ok)=>({display:"inline-flex",alignItems:"center",gap:4,padding:"3px 9px",borderRadius:20,fontSize:10,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",background:ok?C.green+"22":C.red+"22",color:ok?C.green:C.red,border:`1px solid ${ok?C.green+"55":C.red+"55"}`});
 
-  // Firebase sync with timeout fallback
+  // Firebase sync
   useEffect(()=>{
-    // Fallback: if Firebase takes too long, load anyway
-    const timeout = setTimeout(()=>{
+    const unsub = onSnapshot(doc(db,"canaven","data"),(snap)=>{
+      if(snap.exists()){const data=snap.data();if(data.vehicles)setVehicles(data.vehicles);if(data.schedules)setSchedules(data.schedules);}
       setLoaded(true);
-    }, 4000);
-
-    let unsub;
-    try {
-      unsub = onSnapshot(doc(db,"canaven","data"),(snap)=>{
-        clearTimeout(timeout);
-        if(snap.exists()){
-          const data=snap.data();
-          if(data.vehicles)setVehicles(data.vehicles);
-          if(data.schedules)setSchedules(data.schedules);
-        }
-        setLoaded(true);
-      }, (error)=>{
-        // Firebase error - load with defaults
-        console.error("Firebase error:", error);
-        clearTimeout(timeout);
-        setLoaded(true);
-      });
-    } catch(e) {
-      console.error("Firebase init error:", e);
-      clearTimeout(timeout);
-      setLoaded(true);
-    }
-    return ()=>{ clearTimeout(timeout); if(unsub) unsub(); };
+    });
+    return ()=>unsub();
   },[]);
 
   const saveToFirestore = async(v,s)=>{
@@ -317,7 +294,10 @@ export default function App() {
 
   const TABS=[{id:"fleet",icon:"🚗",label:"Flota"},{id:"schedule",icon:"📅",label:"Programar"},{id:"reports",icon:"📊",label:"Informes"}];
 
-  // PIN screen FIRST (so user always sees login, not black screen)
+  // Loading screen
+  if(!loaded)return(<div style={{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:16}}><CanavenLogo/><div style={{color:C.muted,fontSize:13,marginTop:8}}>Cargando datos...</div><div style={{width:40,height:40,border:`3px solid ${C.border}`,borderTop:`3px solid ${C.blue}`,borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/><style>{`@keyframes spin{to{transform:rotate(360deg);}}`}</style></div>);
+
+  // PIN screen
   if(!authed)return(
     <div style={{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"24px"}}>
       <style>{`@keyframes shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-8px)}40%,80%{transform:translateX(8px)}}`}</style>
@@ -347,16 +327,6 @@ export default function App() {
         </div>
         <div style={{textAlign:"center",marginTop:20,fontSize:11,color:C.muted}}>CANAVEN Transportes de Colombia SAS</div>
       </div>
-    </div>
-  );
-
-  // Loading screen (after PIN so login always shows first)
-  if(!loaded)return(
-    <div style={{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:16}}>
-      <CanavenLogo/>
-      <div style={{color:C.muted,fontSize:13,marginTop:8}}>Cargando datos...</div>
-      <div style={{width:40,height:40,border:`3px solid ${C.border}`,borderTop:`3px solid ${C.blue}`,borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>
-      <style>{`@keyframes spin{to{transform:rotate(360deg);}}`}</style>
     </div>
   );
 
@@ -520,34 +490,6 @@ export default function App() {
         <div style={{position:"fixed",inset:0,background:"#000b",zIndex:600,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:16}}>
           <div style={{width:48,height:48,border:`4px solid ${C.border}`,borderTop:`4px solid ${C.blue}`,borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>
           <div style={{color:"#fff",fontWeight:700,fontSize:15}}>Generando PDF...</div>
-        </div>
-      )}
-
-      {/* Full screen PDF preview modal for iPhone Safari */}
-      {showPdfModal && (
-        <div style={{position:"fixed",inset:0,background:"#fff",zIndex:700,overflowY:"auto"}}>
-          {/* Toolbar */}
-          <div style={{position:"sticky",top:0,background:"#1a56c4",padding:"10px 14px",display:"flex",alignItems:"center",justifyContent:"space-between",zIndex:10,boxShadow:"0 2px 8px #0004"}}>
-            <div style={{color:"#fff",fontWeight:700,fontSize:14}}>📄 Vista Previa Informe</div>
-            <div style={{display:"flex",gap:8}}>
-              <button onClick={async()=>{setShowPdfModal(false);await new Promise(r=>setTimeout(r,100));setShowPdfPreview(true);await new Promise(r=>setTimeout(r,400));setGeneratingPdf(true);try{const el=pdfRef.current;if(!el)return;const canvas=await html2canvas(el,{scale:2,useCORS:true,allowTaint:true,backgroundColor:"#ffffff",logging:false});const imgData=canvas.toDataURL("image/png");const pdf=new jsPDF({orientation:"portrait",unit:"mm",format:"a4"});const pdfW=pdf.internal.pageSize.getWidth();const pdfH=pdf.internal.pageSize.getHeight();const imgW=canvas.width;const imgH=canvas.height;const ratio=pdfW/imgW;const scaledH=imgH*ratio;let y=0;let remaining=scaledH;while(remaining>0){const pageH=Math.min(pdfH,remaining);pdf.addImage(imgData,"PNG",0,-y,pdfW,scaledH);remaining-=pdfH;y+=pdfH;if(remaining>0)pdf.addPage();}pdf.save("Informe_Canaven_"+pdfFrom+"_"+pdfTo+".pdf");}catch(e){alert("Error: "+e.message);}setGeneratingPdf(false);setShowPdfPreview(false);}}
-                style={{background:"#fff",color:"#1a56c4",border:"none",borderRadius:7,padding:"7px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>
-                💾 Descargar PDF
-              </button>
-              <button onClick={()=>setShowPdfModal(false)}
-                style={{background:"transparent",color:"#fff",border:"1px solid #ffffff55",borderRadius:7,padding:"7px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>
-                ✕ Cerrar
-              </button>
-            </div>
-          </div>
-          {/* Hint for iPhone */}
-          <div style={{background:"#f0f7ff",borderBottom:"1px solid #cce",padding:"8px 14px",fontSize:11,color:"#1a56c4",textAlign:"center"}}>
-            📱 iPhone: toca <strong>Compartir 📤</strong> → <strong>"Imprimir"</strong> → pellizca → <strong>Compartir</strong> → <strong>Guardar en Archivos</strong>
-          </div>
-          {/* Report content */}
-          <div style={{padding:"8px 0",background:"#f5f5f5",minHeight:"100vh"}}>
-            <PdfPreview/>
-          </div>
         </div>
       )}
 
@@ -841,16 +783,10 @@ export default function App() {
                 <textarea value={pdfObs} onChange={e=>setPdfObs(e.target.value)} placeholder="Observaciones del informe..." rows={3}
                   style={{width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 10px",color:C.text,fontSize:12,outline:"none",resize:"vertical",fontFamily:"inherit"}}/>
               </div>
-              <div style={{display:"flex",gap:8}}>
-                <button onClick={()=>setShowPdfModal(true)} className="tap"
-                  style={{flex:1,background:"#1a56c4",color:"#fff",border:"none",borderRadius:10,padding:"12px 0",fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
-                  <span style={{fontSize:16}}>👁️</span> Ver Informe
-                </button>
-                <button onClick={generatePDF} disabled={generatingPdf} className="tap"
-                  style={{flex:1,background:generatingPdf?C.border:"#dc2626",color:"#fff",border:"none",borderRadius:10,padding:"12px 0",fontSize:13,fontWeight:700,cursor:generatingPdf?"not-allowed":"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
-                  <span style={{fontSize:16}}>📄</span>{generatingPdf?"Generando...":"Descargar PDF"}
-                </button>
-              </div>
+              <button onClick={generatePDF} disabled={generatingPdf} className="tap"
+                style={{width:"100%",background:generatingPdf?C.border:"#dc2626",color:"#fff",border:"none",borderRadius:10,padding:"12px 0",fontSize:14,fontWeight:700,cursor:generatingPdf?"not-allowed":"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+                <span style={{fontSize:18}}>📄</span>{generatingPdf?"Generando...":"📄 Descargar PDF"}
+              </button>
             </div>
             {/* KPIs */}
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
