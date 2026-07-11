@@ -139,18 +139,27 @@ export default function App() {
     document.getElementById("new-plate-input").value="";
   };
   const removeVehicle=(plate)=>updateVehicles(vehicles.filter(v=>v.plate!==plate));
+  const moveVehicle=(index,direction)=>{
+    const newIndex=index+direction;
+    if(newIndex<0||newIndex>=vehicles.length)return;
+    const nv=[...vehicles];
+    [nv[index],nv[newIndex]]=[nv[newIndex],nv[index]];
+    updateVehicles(nv);
+  };
   const toggleAvailability=(plate)=>updateVehicles(vehicles.map(v=>v.plate===plate?{...v,available:!v.available}:v));
 
   const saveEditVehicle=()=>{
     if(!editVehicle)return;
     const newPlate=(editVehicle.newPlate||"").trim().toUpperCase()||editVehicle.plate;
     const nv=vehicles.map(v=>v.plate===editVehicle.plate?{...v,plate:newPlate,owner:editVehicle.owner}:v);
-    // also update schedules if plate changed
+    let ns=schedules;
     if(newPlate!==editVehicle.plate){
-      const ns={};
+      ns={};
       Object.entries(schedules).forEach(([date,ds])=>{ns[date]=ds.map(s=>s.plate===editVehicle.plate?{...s,plate:newPlate}:s);});
-      updateVehicles(nv);updateSchedules(ns);
-    } else {updateVehicles(nv);}
+    }
+    setVehicles(nv);
+    setSchedules(ns);
+    saveToFirestore(nv,ns);
     setEditVehicle(null);
   };
 
@@ -643,6 +652,8 @@ export default function App() {
                         </div>
                       </div>
                       <div style={{display:"flex",gap:6}}>
+                        {isAdmin&&<button onClick={()=>moveVehicle(idx,-1)} disabled={idx===0} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,color:idx===0?C.border:C.muted,cursor:idx===0?"not-allowed":"pointer",fontSize:12,padding:"3px 8px"}}>↑</button>}
+                        {isAdmin&&<button onClick={()=>moveVehicle(idx,1)} disabled={idx===vehicles.length-1} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,color:idx===vehicles.length-1?C.border:C.muted,cursor:idx===vehicles.length-1?"not-allowed":"pointer",fontSize:12,padding:"3px 8px"}}>↓</button>}
                         {isAdmin&&<button onClick={()=>setEditVehicle({plate:v.plate,newPlate:v.plate,owner:v.owner||""})} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,color:C.muted,cursor:"pointer",fontSize:12,padding:"3px 8px"}}>✏️</button>}
                         {isAdmin&&<button onClick={()=>removeVehicle(v.plate)} style={{background:"transparent",border:"none",color:C.muted,fontSize:17,cursor:"pointer",padding:"2px 6px"}}>✕</button>}
                       </div>
