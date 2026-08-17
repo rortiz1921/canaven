@@ -315,9 +315,6 @@ export default function App() {
         return svg;
       };
 
-      const dailySVG = buildSVGBars(days.map(d => ({ val: d.cargados, label: d.label })), "#1a56c4");
-      const monthlySVG = buildSVGBars(monthlyArr.map(m => ({ val: m.total, label: m.label })), "#b5c832");
-
       const chartH = 180;
 
       // Build monthly comparison data (last 12 months)
@@ -335,6 +332,10 @@ export default function App() {
         .map(([,v]) => v);
       const maxMonth = Math.max(...monthlyArr.map(m => m.total), 1);
       const mBarW = monthlyArr.length > 0 ? Math.min(55, Math.floor(500 / monthlyArr.length)) : 55;
+
+      // Build charts only after monthlyArr has been created
+      const dailySVG = buildSVGBars(days.map(d => ({ val: d.cargados, label: d.label })), "#1a56c4");
+      const monthlySVG = buildSVGBars(monthlyArr.map(m => ({ val: m.total, label: m.label })), "#b5c832");
 
       // Vehicle availability % for the PDF report month range
       const pdfMonthTotal = days.reduce((s, d) => s + d.cargados, 0);
@@ -445,12 +446,27 @@ export default function App() {
       </div>
       </body></html>`;
 
-      // Open in new window and print as PDF
+      // Open the report in a new tab and open the browser print dialog.
+      // From the print dialog choose "Guardar como PDF".
       const win = window.open("", "_blank");
+      if (!win) {
+        alert("El navegador bloqueó la ventana del informe. Permite las ventanas emergentes para esta página e inténtalo nuevamente.");
+        return;
+      }
+      win.document.open();
       win.document.write(html);
       win.document.close();
-      win.onload = () => { win.focus(); win.print(); };
-    } catch(e) { console.error(e); }
+      win.document.title = `CANAVEN - Informe Operativo ${fromLabel} a ${toLabel}`;
+      setTimeout(() => {
+        win.focus();
+        win.print();
+      }, 400);
+    } catch(e) {
+      console.error("Error generando el informe PDF:", e);
+      alert("No se pudo generar el informe. Revisa la consola para ver el error.");
+    } finally {
+      setGeneratingPdf(false);
+    }
     setGeneratingPdf(false);
   };
 
