@@ -374,14 +374,14 @@ export default function App() {
 
       const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
       <style>
-        @page{size:A4;margin:105px 30px 32px;}
+        @page{size:A4;margin:118px 30px 34px;}
         body{font-family:Arial,sans-serif;margin:0;padding:0;color:#222;font-size:11px;}
         /* Membrete fijo: Chrome lo repite automáticamente en cada página impresa. */
-        .header{position:fixed;top:0;left:0;right:0;height:72px;display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #1a56c4;padding-bottom:8px;background:#fff;z-index:1000;}
+        .header{position:fixed;top:0;left:0;right:0;height:66px;display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #1a56c4;padding-bottom:6px;background:#fff;z-index:1000;}
         .logo-text{font-size:22px;font-weight:900;color:#1a56c4;letter-spacing:1px;}
         .logo-sub{font-size:9px;color:#b5c832;letter-spacing:2px;}
         h2{text-align:center;font-size:13px;font-weight:bold;letter-spacing:1px;margin:0 0 20px;}
-        .section-title{font-weight:bold;font-size:11px;margin:16px 0 6px;} .section3-title{margin-top:34px;}
+        .section-title{font-weight:bold;font-size:11px;margin:16px 0 6px;} .section3-title{margin-top:48px;}
         .item{margin:3px 0 3px 20px;font-size:10px;}
         .chart-wrap{border:1px solid #ddd;border-radius:4px;padding:16px;margin:12px 0;break-inside:avoid;page-break-inside:avoid;}
         .chart-title{text-align:center;font-weight:bold;font-size:12px;margin-bottom:12px;}
@@ -400,7 +400,8 @@ export default function App() {
         .footer{border-top:1px dashed #aaa;margin-top:32px;padding-top:12px;font-size:10px;break-inside:avoid;page-break-inside:avoid;}
         .sign-line{border-bottom:1px solid #333;width:140px;margin:24px 0 4px;}
         @media print{
-          .header{position:fixed;top:0;}
+          body{padding-top:0;}
+          .header{position:fixed;top:0;left:0;right:0;}
           .table-section{break-inside:auto;page-break-inside:auto;}
           .chart-wrap,.footer{break-inside:avoid;page-break-inside:avoid;}
         }
