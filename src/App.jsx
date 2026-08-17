@@ -277,18 +277,15 @@ export default function App() {
   };
 
   const confirmLoad = () => {
+    // N° de cargue, Volumen GOV e imagen son 100% opcionales.
+    // El cargue SIEMPRE puede confirmarse, incluso con los tres campos vacíos.
     const numero = String(loadModal.numero || "").trim();
-    const volumenRaw = String(loadModal.volumenGOV || "").trim().replace(",", ".");
-    const volumen = Number(volumenRaw);
+    const volumenRaw = String(loadModal.volumenGOV || "").trim().replace(/\s/g, "").replace(",", ".");
+    const volumen = volumenRaw === "" ? null : Number(volumenRaw);
 
-    if (!numero) {
-      setLoadModal(prev => ({ ...prev, ocrError:"Ingresa el N° de cargue." }));
-      return;
-    }
-    if (!volumenRaw || !Number.isFinite(volumen) || volumen <= 0) {
-      setLoadModal(prev => ({ ...prev, ocrError:"Ingresa un Volumen GOV válido en barriles." }));
-      return;
-    }
+    // Si el usuario escribió un volumen inválido, no bloqueamos el cargue:
+    // guardamos el valor como texto para no impedir la confirmación.
+    const volumenGuardado = volumenRaw === "" ? null : (Number.isFinite(volumen) ? volumen : volumenRaw);
 
     const day = [...(schedules[selectedDate] || [])];
     const idx = day.findIndex(v => v.plate === loadModal.plate);
@@ -298,8 +295,8 @@ export default function App() {
       ...day[idx],
       loaded:true,
       loadedTime:new Date().toLocaleTimeString("es-CO", { hour:"2-digit", minute:"2-digit" }),
-      numeroCargue:numero,
-      volumenGOV:volumen
+      numeroCargue:numero || null,
+      volumenGOV:volumenGuardado
     };
     updateSchedules({ ...schedules, [selectedDate]: day });
     closeLoadModal();
@@ -1259,19 +1256,19 @@ export default function App() {
                 style={{ background:"transparent", border:"none", color:C.muted, fontSize:24, cursor:"pointer" }}>×</button>
             </div>
             <div style={{ color:C.muted, fontSize:12, marginBottom:16 }}>
-              Vehículo <strong style={{ color:C.yellowGreen }}>{loadModal.plate}</strong> · Ingresa los datos manualmente o carga una imagen del comprobante.
+              Vehículo <strong style={{ color:C.yellowGreen }}>{loadModal.plate}</strong> · Puedes ingresar los datos manualmente, cargar una imagen desde tus fotos o simplemente confirmar la carga sin diligenciarlos.
             </div>
 
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:12 }}>
               <div>
-                <div style={{ fontSize:10, color:C.muted, marginBottom:5, fontWeight:700 }}>N° DE CARGUE *</div>
+                <div style={{ fontSize:10, color:C.muted, marginBottom:5, fontWeight:700 }}>N° DE CARGUE (opcional)</div>
                 <input value={loadModal.numero}
                   onChange={e=>setLoadModal(prev=>({...prev,numero:e.target.value,ocrError:""}))}
                   placeholder="Ej. 123456"
                   style={{ width:"100%", boxSizing:"border-box", background:C.surface, border:`1px solid ${C.border}`, borderRadius:9, padding:"11px 12px", color:C.text, fontSize:14, outline:"none" }} />
               </div>
               <div>
-                <div style={{ fontSize:10, color:C.muted, marginBottom:5, fontWeight:700 }}>VOLUMEN GOV (BARRILES) *</div>
+                <div style={{ fontSize:10, color:C.muted, marginBottom:5, fontWeight:700 }}>VOLUMEN GOV (BARRILES) (opcional)</div>
                 <input type="text" inputMode="decimal" value={loadModal.volumenGOV}
                   onChange={e=>setLoadModal(prev=>({...prev,volumenGOV:e.target.value,ocrError:""}))}
                   placeholder="Ej. 10.500"
@@ -1284,8 +1281,8 @@ export default function App() {
               background:C.surface, border:`1px dashed ${C.blue}`, borderRadius:10, padding:"12px",
               color:C.blue, fontWeight:800, fontSize:12, cursor:"pointer", marginBottom:10
             }}>
-              📷 {loadModal.ocrLoading ? "Leyendo imagen..." : "Cargar imagen y extraer datos"}
-              <input type="file" accept="image/*" capture="environment" style={{ display:"none" }}
+              📷 {loadModal.ocrLoading ? "Leyendo imagen..." : "Cargar imagen desde fotos y extraer datos"}
+              <input type="file" accept="image/*" style={{ display:"none" }}
                 disabled={loadModal.ocrLoading}
                 onChange={e=>handleLoadImage(e.target.files?.[0])} />
             </label>
