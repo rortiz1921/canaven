@@ -51,6 +51,11 @@ const CanavenLogo = () => (
 function load(key,fb){try{const v=localStorage.getItem(key);return v?JSON.parse(v):fb;}catch{return fb;}}
 function save(key,val){try{localStorage.setItem(key,JSON.stringify(val));}catch{}}
 
+const TABS = [
+  { id: "fleet", label: "Flota", icon: "🚚" },
+  { id: "schedule", label: "Programar", icon: "🗓️" },
+  { id: "reports", label: "Informes", icon: "📊" },
+];
 export default function App() {
   const [tab, setTab] = useState("schedule");
   const [vehicles, setVehicles] = useState(DEFAULT_VEHICLES);
