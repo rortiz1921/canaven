@@ -130,33 +130,6 @@ export default function App() {
   const updateVehicles=(nv)=>{setVehicles(nv);saveToFirestore(nv,schedules);};
   const updateSchedules=(ns)=>{setSchedules(ns);saveToFirestore(vehicles,ns);};
 
-  // Backup local de los datos actualmente cargados desde Firebase.
-  // NO modifica Firebase: solo descarga un archivo JSON al computador.
-  const downloadBackup=()=>{
-    try {
-      const backup={
-        app:"CANAVEN",
-        backupVersion:1,
-        createdAt:new Date().toISOString(),
-        source:"Firestore canaven/data",
-        vehicles,
-        schedules
-      };
-      const blob=new Blob([JSON.stringify(backup,null,2)],{type:"application/json;charset=utf-8;"});
-      const url=URL.createObjectURL(blob);
-      const a=document.createElement("a");
-      const stamp=new Date().toISOString().replace(/[:.]/g,"-").slice(0,19);
-      a.href=url;
-      a.download=`backup_canaven_${stamp}.json`;
-      document.body.appendChild(a);
-      a.click();
-      setTimeout(()=>{document.body.removeChild(a);URL.revokeObjectURL(url);},1000);
-    } catch(e) {
-      console.error(e);
-      alert("No fue posible generar la copia de seguridad: "+e.message);
-    }
-  };
-
   // Fleet
   const addVehicle=()=>{
     const p=document.getElementById("new-plate-input")?.value?.trim()?.toUpperCase();
@@ -715,10 +688,7 @@ export default function App() {
               <span style={{fontSize:9,color:isAdmin?C.blue:C.green,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em"}}>{isAdmin?"⚙️ Admin":"👁️ Visitante"}</span>
               <button onClick={()=>{sessionStorage.removeItem("canaven_role");setAuthed(false);setRole("");setPinInput("");}} style={{background:"transparent",border:`1px solid ${C.border}`,borderRadius:4,color:C.muted,fontSize:9,cursor:"pointer",padding:"1px 5px"}}>Salir</button>
             </div>
-            <div style={{display:"flex",alignItems:"center",justifyContent:"flex-end",gap:6}}>
-              <div style={{fontSize:9,color:syncing?C.orange:C.green,letterSpacing:"0.1em",textTransform:"uppercase",fontWeight:700}}>{syncing?"⏳ Guardando...":"☁️ Sincronizado"}</div>
-              {isAdmin&&loaded&&<button onClick={downloadBackup} title="Descargar copia de seguridad" style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,color:C.text,fontSize:10,cursor:"pointer",padding:"3px 7px",fontWeight:700}}>💾 Copia</button>}
-            </div>
+            <div style={{fontSize:9,color:syncing?C.orange:C.green,letterSpacing:"0.1em",textTransform:"uppercase",fontWeight:700}}>{syncing?"⏳ Guardando...":"☁️ Sincronizado"}</div>
             <div style={{fontSize:9,color:C.muted,marginTop:1}}>{(()=>{const d=new Date(selectedDate+"T12:00:00");return `${DAYS_ES[d.getDay()]} ${d.getDate()} ${MONTHS_ES[d.getMonth()]}`;})()}</div>
           </div>
         </div>
