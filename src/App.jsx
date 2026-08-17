@@ -374,10 +374,10 @@ export default function App() {
 
       const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
       <style>
-        @page{size:auto;margin:0;}
-        body{font-family:Arial,sans-serif;margin:0;padding:92px 30px 30px;color:#222;font-size:11px;}
+        @page{size:auto;margin:96px 30px 30px;}
+        body{font-family:Arial,sans-serif;margin:0;padding:0;color:#222;font-size:11px;}
         /* Membrete fijo: Chrome lo repite automáticamente en cada página impresa. */
-        .header{position:fixed;top:0;left:30px;right:30px;height:72px;display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #1a56c4;padding-bottom:8px;background:#fff;z-index:1000;}
+        .header{position:fixed;top:-82px;left:0;right:0;height:72px;display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #1a56c4;padding-bottom:8px;background:#fff;z-index:1000;}
         .logo-text{font-size:22px;font-weight:900;color:#1a56c4;letter-spacing:1px;}
         .logo-sub{font-size:9px;color:#b5c832;letter-spacing:2px;}
         h2{text-align:center;font-size:13px;font-weight:bold;letter-spacing:1px;margin:0 0 20px;}
@@ -392,15 +392,17 @@ export default function App() {
         th{background:#1a56c4;color:#fff;padding:6px 24px;font-size:11px;}
         tfoot{display:table-footer-group;}
         tfoot td{font-weight:bold;background:#f0f0f0;border:1px solid #ccc;padding:6px 12px;text-align:center;}
-        /* Mantiene el título y su tabla juntos; si no caben, pasan completos a la siguiente hoja. */
-        .table-section{break-inside:avoid;page-break-inside:avoid;margin:0 0 16px;}
+        /* Las tablas pueden continuar en otra página, pero nunca se corta una fila. */
+        .table-section{margin:0 0 16px;break-inside:auto;page-break-inside:auto;}
         .obs-section{break-inside:avoid;page-break-inside:avoid;}
+        .table-section .section-title{break-after:avoid;page-break-after:avoid;}
         .obs-item{margin:4px 0;font-size:10px;}
         .footer{border-top:1px dashed #aaa;margin-top:32px;padding-top:12px;font-size:10px;break-inside:avoid;page-break-inside:avoid;}
         .sign-line{border-bottom:1px solid #333;width:140px;margin:24px 0 4px;}
         @media print{
-          .header{position:fixed;}
-          .table-section,.chart-wrap,.footer{break-inside:avoid;page-break-inside:avoid;}
+          .header{position:fixed;top:-82px;}
+          .table-section{break-inside:auto;page-break-inside:auto;}
+          .chart-wrap,.footer{break-inside:avoid;page-break-inside:avoid;}
         }
       </style></head><body>
       <div class="header">
