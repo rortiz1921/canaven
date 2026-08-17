@@ -84,7 +84,7 @@ export default function App() {
   const ocrInputRef = useRef(null);
 
   // Auth
-  const [authed, setAuthed] = useState(()=>!!sessionStorage.getItem("canaven_role"));
+  const [authed, setAuthed] = useState(false);
   const [role, setRole] = useState(()=>sessionStorage.getItem("canaven_role")||"");
   const [pinInput, setPinInput] = useState("");
   const [pinError, setPinError] = useState(false);
