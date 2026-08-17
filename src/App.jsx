@@ -375,7 +375,7 @@ export default function App() {
       const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
       <style>
         @page{size:auto;margin:0;}
-        body{font-family:Arial,sans-serif;margin:0;padding:20px 30px 30px;color:#222;font-size:11px;}
+        body{font-family:Arial,sans-serif;margin:0;padding:30mm 30px 30px;color:#222;font-size:11px;}
         /* Membrete fijo: Chrome lo repite automáticamente en cada página impresa. */
         .header{position:relative;left:auto;right:auto;top:auto;height:72px;display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #1a56c4;padding-bottom:8px;background:#fff;z-index:1000;}
         .logo-text{font-size:22px;font-weight:900;color:#1a56c4;letter-spacing:1px;}
