@@ -59,6 +59,7 @@ export default function App() {
   const [pdfTo, setPdfTo] = useState(getTodayStr());
   const [pdfObs, setPdfObs] = useState("");
   const [generatingPdf, setGeneratingPdf] = useState(false);
+  const [loadModal, setLoadModal] = useState({ open:false, plate:"", numero:"", volumenGOV:"", ocrLoading:false, ocrError:"", ocrText:"" });
   const [authed, setAuthed] = useState(() => !!sessionStorage.getItem("canaven_role"));
   const [role, setRole] = useState(() => sessionStorage.getItem("canaven_role") || "");
   const [pinInput, setPinInput] = useState("");
@@ -182,8 +183,126 @@ export default function App() {
     const day = [...(schedules[selectedDate] || [])];
     const idx = day.findIndex(v => v.plate === plate);
     if (idx === -1) return;
-    day[idx] = { ...day[idx], loaded: !day[idx].loaded, loadedTime: !day[idx].loaded ? new Date().toLocaleTimeString("es-CO", { hour:"2-digit", minute:"2-digit" }) : null };
+
+    // Si ya está cargado, conserva el comportamiento anterior: permite desmarcarlo.
+    if (day[idx].loaded) {
+      day[idx] = { ...day[idx], loaded:false, loadedTime:null };
+      updateSchedules({ ...schedules, [selectedDate]: day });
+      return;
+    }
+
+    // Antes de confirmar una carga solicitamos N° y Volumen GOV.
+    const current = day[idx];
+    setLoadModal({
+      open:true,
+      plate,
+      numero: current.numeroCargue || "",
+      volumenGOV: current.volumenGOV != null ? String(current.volumenGOV) : "",
+      ocrLoading:false,
+      ocrError:"",
+      ocrText:""
+    });
+  };
+
+  const closeLoadModal = () => {
+    setLoadModal({ open:false, plate:"", numero:"", volumenGOV:"", ocrLoading:false, ocrError:"", ocrText:"" });
+  };
+
+  const loadTesseract = () => new Promise((resolve, reject) => {
+    if (window.Tesseract) return resolve(window.Tesseract);
+    const existing = document.querySelector('script[data-canaven-tesseract="1"]');
+    if (existing) {
+      existing.addEventListener("load", () => resolve(window.Tesseract), { once:true });
+      existing.addEventListener("error", () => reject(new Error("No se pudo cargar el lector OCR.")), { once:true });
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
+    script.async = true;
+    script.dataset.canavenTesseract = "1";
+    script.onload = () => resolve(window.Tesseract);
+    script.onerror = () => reject(new Error("No se pudo cargar el lector OCR. Verifica la conexión a internet."));
+    document.head.appendChild(script);
+  });
+
+  const extractLoadDataFromOCR = (rawText) => {
+    const text = (rawText || "").replace(/\r/g, "\n");
+    const normalized = text.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+    // N° / No / Numero / Número
+    let numero = "";
+    const numeroMatch =
+      normalized.match(/(?:N\s*[°ºo]?|NO\.?|NUMERO|NRO\.?)[\s:#-]*([A-Z0-9][A-Z0-9./_-]{2,})/i);
+    if (numeroMatch) numero = numeroMatch[1].trim();
+
+    // Volumen GOV / GOV / Barriles. Acepta coma o punto decimal.
+    let volumen = "";
+    const volumenMatch =
+      normalized.match(/(?:VOLUMEN(?:\s+EN)?\s+(?:BARRILES\s+)?GOV|VOLUMEN\s+GOV|GOV|BARRILES)[\s:#-]*([0-9]{1,3}(?:[.,][0-9]{1,3})?(?:[.,][0-9]{3})?)/i);
+    if (volumenMatch) volumen = volumenMatch[1].trim();
+
+    return { numero, volumen };
+  };
+
+  const handleLoadImage = async (file) => {
+    if (!file) return;
+    setLoadModal(prev => ({ ...prev, ocrLoading:true, ocrError:"", ocrText:"" }));
+    try {
+      const Tesseract = await loadTesseract();
+      const result = await Tesseract.recognize(file, "spa", {
+        logger: m => {
+          if (m && m.status === "recognizing text") {
+            setLoadModal(prev => ({ ...prev, ocrLoading:true }));
+          }
+        }
+      });
+      const rawText = result?.data?.text || "";
+      const found = extractLoadDataFromOCR(rawText);
+      setLoadModal(prev => ({
+        ...prev,
+        ocrLoading:false,
+        ocrError: (!found.numero && !found.volumen) ? "No pude identificar automáticamente N° o Volumen GOV. Puedes escribirlos manualmente." : "",
+        ocrText: rawText,
+        numero: found.numero || prev.numero,
+        volumenGOV: found.volumen || prev.volumenGOV
+      }));
+    } catch (e) {
+      console.error(e);
+      setLoadModal(prev => ({
+        ...prev,
+        ocrLoading:false,
+        ocrError:e?.message || "No se pudo leer la imagen. Ingresa los datos manualmente."
+      }));
+    }
+  };
+
+  const confirmLoad = () => {
+    const numero = String(loadModal.numero || "").trim();
+    const volumenRaw = String(loadModal.volumenGOV || "").trim().replace(",", ".");
+    const volumen = Number(volumenRaw);
+
+    if (!numero) {
+      setLoadModal(prev => ({ ...prev, ocrError:"Ingresa el N° de cargue." }));
+      return;
+    }
+    if (!volumenRaw || !Number.isFinite(volumen) || volumen <= 0) {
+      setLoadModal(prev => ({ ...prev, ocrError:"Ingresa un Volumen GOV válido en barriles." }));
+      return;
+    }
+
+    const day = [...(schedules[selectedDate] || [])];
+    const idx = day.findIndex(v => v.plate === loadModal.plate);
+    if (idx === -1) return;
+
+    day[idx] = {
+      ...day[idx],
+      loaded:true,
+      loadedTime:new Date().toLocaleTimeString("es-CO", { hour:"2-digit", minute:"2-digit" }),
+      numeroCargue:numero,
+      volumenGOV:volumen
+    };
     updateSchedules({ ...schedules, [selectedDate]: day });
+    closeLoadModal();
   };
 
   const updateObservaciones = (plate, value) => {
@@ -806,6 +925,20 @@ export default function App() {
                         </div>
                       )}
                     </div>
+                    {v.loaded && (v.numeroCargue || v.volumenGOV) && (
+                      <div style={{ display:"flex", gap:8, marginTop:8, flexWrap:"wrap" }}>
+                        {v.numeroCargue && (
+                          <div style={{ flex:1, minWidth:130, background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"7px 10px", fontSize:11 }}>
+                            <span style={{ color:C.muted }}>N° Cargue: </span><strong style={{ color:C.text }}>{v.numeroCargue}</strong>
+                          </div>
+                        )}
+                        {v.volumenGOV != null && v.volumenGOV !== "" && (
+                          <div style={{ flex:1, minWidth:130, background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"7px 10px", fontSize:11 }}>
+                            <span style={{ color:C.muted }}>GOV: </span><strong style={{ color:C.yellowGreen }}>{Number(v.volumenGOV).toLocaleString("es-CO")} Bbl</strong>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -1108,6 +1241,87 @@ export default function App() {
           </div>
         )}
       </div>
+
+      {/* MODAL: CONFIRMAR CARGUE */}
+      {loadModal.open && (
+        <div style={{
+          position:"fixed", inset:0, background:"rgba(0,0,0,.72)", zIndex:500,
+          display:"flex", alignItems:"center", justifyContent:"center", padding:16
+        }}>
+          <div style={{
+            width:"100%", maxWidth:460, maxHeight:"90vh", overflowY:"auto",
+            background:C.card, border:`1px solid ${C.border}`, borderRadius:16, padding:18,
+            boxShadow:"0 20px 60px rgba(0,0,0,.45)"
+          }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:4 }}>
+              <div style={{ fontSize:18, fontWeight:900 }}>Confirmar cargue</div>
+              <button onClick={closeLoadModal} className="tap"
+                style={{ background:"transparent", border:"none", color:C.muted, fontSize:24, cursor:"pointer" }}>×</button>
+            </div>
+            <div style={{ color:C.muted, fontSize:12, marginBottom:16 }}>
+              Vehículo <strong style={{ color:C.yellowGreen }}>{loadModal.plate}</strong> · Ingresa los datos manualmente o carga una imagen del comprobante.
+            </div>
+
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:12 }}>
+              <div>
+                <div style={{ fontSize:10, color:C.muted, marginBottom:5, fontWeight:700 }}>N° DE CARGUE *</div>
+                <input value={loadModal.numero}
+                  onChange={e=>setLoadModal(prev=>({...prev,numero:e.target.value,ocrError:""}))}
+                  placeholder="Ej. 123456"
+                  style={{ width:"100%", boxSizing:"border-box", background:C.surface, border:`1px solid ${C.border}`, borderRadius:9, padding:"11px 12px", color:C.text, fontSize:14, outline:"none" }} />
+              </div>
+              <div>
+                <div style={{ fontSize:10, color:C.muted, marginBottom:5, fontWeight:700 }}>VOLUMEN GOV (BARRILES) *</div>
+                <input type="text" inputMode="decimal" value={loadModal.volumenGOV}
+                  onChange={e=>setLoadModal(prev=>({...prev,volumenGOV:e.target.value,ocrError:""}))}
+                  placeholder="Ej. 10.500"
+                  style={{ width:"100%", boxSizing:"border-box", background:C.surface, border:`1px solid ${C.border}`, borderRadius:9, padding:"11px 12px", color:C.text, fontSize:14, outline:"none" }} />
+              </div>
+            </div>
+
+            <label style={{
+              display:"flex", alignItems:"center", justifyContent:"center", gap:8,
+              background:C.surface, border:`1px dashed ${C.blue}`, borderRadius:10, padding:"12px",
+              color:C.blue, fontWeight:800, fontSize:12, cursor:"pointer", marginBottom:10
+            }}>
+              📷 {loadModal.ocrLoading ? "Leyendo imagen..." : "Cargar imagen y extraer datos"}
+              <input type="file" accept="image/*" capture="environment" style={{ display:"none" }}
+                disabled={loadModal.ocrLoading}
+                onChange={e=>handleLoadImage(e.target.files?.[0])} />
+            </label>
+
+            {loadModal.ocrLoading && (
+              <div style={{ background:C.surface, borderRadius:9, padding:10, color:C.muted, fontSize:11, marginBottom:10 }}>
+                🔎 Analizando la imagen... puede tardar unos segundos.
+              </div>
+            )}
+
+            {loadModal.ocrError && (
+              <div style={{ background:C.red+"16", border:`1px solid ${C.red}44`, color:C.red, borderRadius:9, padding:10, fontSize:11, marginBottom:10 }}>
+                {loadModal.ocrError}
+              </div>
+            )}
+
+            {loadModal.ocrText && (
+              <details style={{ marginBottom:10 }}>
+                <summary style={{ color:C.muted, fontSize:10, cursor:"pointer" }}>Ver texto detectado por OCR</summary>
+                <pre style={{ whiteSpace:"pre-wrap", fontSize:9, color:C.muted, background:C.surface, borderRadius:8, padding:8, maxHeight:120, overflow:"auto" }}>{loadModal.ocrText}</pre>
+              </details>
+            )}
+
+            <div style={{ display:"flex", gap:8, marginTop:4 }}>
+              <button onClick={closeLoadModal} className="tap"
+                style={{ flex:1, background:C.surface, color:C.muted, border:`1px solid ${C.border}`, borderRadius:10, padding:"11px", fontWeight:700, cursor:"pointer" }}>
+                Cancelar
+              </button>
+              <button onClick={confirmLoad} disabled={loadModal.ocrLoading} className="tap"
+                style={{ flex:1, background:C.green, color:"#07110a", border:"none", borderRadius:10, padding:"11px", fontWeight:900, cursor:"pointer" }}>
+                ✓ Confirmar cargue
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* BOTTOM NAV */}
       <div style={{ position:"fixed", bottom:0, left:0, right:0, background:C.surface, borderTop:`1px solid ${C.border}`, display:"flex", zIndex:200 }}>
