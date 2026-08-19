@@ -46,7 +46,10 @@ const CanavenLogo = () => (
 
 export default function App() {
   const [tab, setTab] = useState("schedule");
-  const [vehicles, setVehicles] = useState(DEFAULT_VEHICLES);
+  const [vehicles, setVehicles] = useState(DEFAULT_VEHICLES.map(v => ({...v, destination:"Monterrey"})));
+  const [destinations, setDestinations] = useState(["Monterrey"]);
+  const [selectedDestination, setSelectedDestination] = useState("Monterrey");
+  const [newDestination, setNewDestination] = useState("");
   const [newPlate, setNewPlate] = useState("");
   const [schedules, setSchedules] = useState({});
   const [selectedDate, setSelectedDate] = useState(getTodayStr());
@@ -87,8 +90,16 @@ export default function App() {
     const unsub = onSnapshot(doc(db, "canaven", "data"), (snap) => {
       if (snap.exists()) {
         const data = snap.data();
-        if (data.vehicles) setVehicles(data.vehicles);
-        if (data.schedules) setSchedules(data.schedules);
+        const loadedDestinations = Array.isArray(data.destinations) && data.destinations.length ? data.destinations : ["Monterrey"];
+        const normalizedVehicles = (data.vehicles || DEFAULT_VEHICLES).map(v => ({ ...v, destination: v.destination || "Monterrey" }));
+        const normalizedSchedules = {};
+        Object.entries(data.schedules || {}).forEach(([date, arr]) => {
+          normalizedSchedules[date] = (arr || []).map(v => ({ ...v, destination: v.destination || "Monterrey" }));
+        });
+        setDestinations(loadedDestinations);
+        setVehicles(normalizedVehicles);
+        setSchedules(normalizedSchedules);
+        if (!loadedDestinations.includes(selectedDestination)) setSelectedDestination(loadedDestinations[0]);
       }
       setLoaded(true);
     });
@@ -96,34 +107,47 @@ export default function App() {
   }, []);
 
   // ── Save to Firestore whenever data changes ──
-  const saveToFirestore = async (newVehicles, newSchedules) => {
+  const saveToFirestore = async (newVehicles, newSchedules, newDestinations = destinations) => {
     setSyncing(true);
     try {
       await setDoc(doc(db, "canaven", "data"), {
         vehicles: newVehicles,
         schedules: newSchedules,
+        destinations: newDestinations,
         updatedAt: new Date().toISOString()
       });
     } catch (e) { console.error(e); }
     setSyncing(false);
   };
 
-  const updateVehicles = (newV) => { setVehicles(newV); saveToFirestore(newV, schedules); };
-  const updateSchedules = (newS) => { setSchedules(newS); saveToFirestore(vehicles, newS); };
+  const updateVehicles = (newV) => { setVehicles(newV); saveToFirestore(newV, schedules, destinations); };
+  const updateSchedules = (newS) => { setSchedules(newS); saveToFirestore(vehicles, newS, destinations); };
+  const updateDestinations = (newD) => { setDestinations(newD); saveToFirestore(vehicles, schedules, newD); };
+
+  const addDestination = () => {
+    const name = newDestination.trim();
+    if (!name) return;
+    const exists = destinations.some(d => d.toLowerCase() === name.toLowerCase());
+    if (exists) return;
+    const next = [...destinations, name];
+    updateDestinations(next);
+    setSelectedDestination(name);
+    setNewDestination("");
+  };
 
   const badge = (ok) => ({ display:"inline-flex", alignItems:"center", gap:4, padding:"3px 9px", borderRadius:20, fontSize:10, fontWeight:700, letterSpacing:"0.07em", textTransform:"uppercase", background: ok ? C.green+"22" : C.red+"22", color: ok ? C.green : C.red, border:`1px solid ${ok ? C.green+"55" : C.red+"55"}` });
 
   // Fleet
   const addVehicle = () => {
     const p = newPlate.trim().toUpperCase();
-    if (!p || vehicles.find(v => v.plate === p)) return;
-    const newV = [...vehicles, { plate: p, available: true }];
+    if (!p || vehicles.find(v => v.plate === p && (v.destination || "Monterrey") === selectedDestination)) return;
+    const newV = [...vehicles, { plate: p, available: true, destination: selectedDestination }];
     updateVehicles(newV);
     setNewPlate("");
   };
-  const removeVehicle = (plate) => updateVehicles(vehicles.filter(v => v.plate !== plate));
+  const removeVehicle = (plate) => updateVehicles(vehicles.filter(v => !(v.plate === plate && (v.destination || "Monterrey") === selectedDestination)));
   const toggleAvailability = (plate) => {
-    updateVehicles(vehicles.map(v => v.plate === plate ? { ...v, available: !v.available } : v));
+    updateVehicles(vehicles.map(v => v.plate === plate && (v.destination || "Monterrey") === selectedDestination ? { ...v, available: !v.available } : v));
     setSelectedPlates(prev => prev.filter(p => p !== plate));
   };
 
@@ -133,13 +157,13 @@ export default function App() {
     // Insert replacement in same position, disable original
     setVehicles(prev => {
       const updated = prev.map(v => {
-        if (v.plate === originalPlate) return { ...v, available: false, replacedBy: newPlate };
+        if (v.plate === originalPlate && (v.destination || "Monterrey") === selectedDestination) return { ...v, available: false, replacedBy: newPlate };
         return v;
       });
       // Insert new vehicle right after original if not already in list
-      if (!updated.find(v => v.plate === newPlate)) {
-        const idx = updated.findIndex(v => v.plate === originalPlate);
-        updated.splice(idx + 1, 0, { plate: newPlate, available: true });
+      if (!updated.find(v => v.plate === newPlate && (v.destination || "Monterrey") === selectedDestination)) {
+        const idx = updated.findIndex(v => v.plate === originalPlate && (v.destination || "Monterrey") === selectedDestination);
+        updated.splice(idx + 1, 0, { plate: newPlate, available: true, destination: selectedDestination });
       }
       updateVehicles(updated);
       return updated;
@@ -149,20 +173,21 @@ export default function App() {
 
   const clearReplacement = (originalPlate) => {
     setVehicles(prev => {
-      const v = prev.find(p => p.plate === originalPlate);
+      const v = prev.find(p => p.plate === originalPlate && (p.destination || "Monterrey") === selectedDestination);
       if (!v || !v.replacedBy) return prev;
       const updated = prev
-        .filter(p => p.plate !== v.replacedBy)
-        .map(p => p.plate === originalPlate ? { ...p, available: true, replacedBy: null } : p);
+        .filter(p => !(p.plate === v.replacedBy && (p.destination || "Monterrey") === selectedDestination))
+        .map(p => p.plate === originalPlate && (p.destination || "Monterrey") === selectedDestination ? { ...p, available: true, replacedBy: null } : p);
       updateVehicles(updated);
       return updated;
     });
   };
 
-  // Schedule
-  const scheduleForDate = schedules[selectedDate] || [];
+  // Schedule by destination
+  const destinationVehicles = vehicles.filter(v => (v.destination || "Monterrey") === selectedDestination);
+  const scheduleForDate = (schedules[selectedDate] || []).filter(v => (v.destination || "Monterrey") === selectedDestination);
   const alreadyScheduled = scheduleForDate.map(v => v.plate);
-  const notYetScheduled = vehicles.filter(v => v.available && !alreadyScheduled.includes(v.plate));
+  const notYetScheduled = destinationVehicles.filter(v => v.available && !alreadyScheduled.includes(v.plate));
 
   const toggleSelectPlate = (plate) => setSelectedPlates(prev => prev.includes(plate) ? prev.filter(p => p !== plate) : [...prev, plate]);
   const selectAll = () => setSelectedPlates(notYetScheduled.map(v => v.plate));
@@ -172,16 +197,16 @@ export default function App() {
     if (!selectedPlates.length) return;
     const existing = schedules[selectedDate] || [];
     const toAdd = selectedPlates.filter(plate => !existing.find(e => e.plate === plate))
-      .map(plate => ({ plate, loaded: false, loadedTime: null, observaciones: "" }));
+      .map(plate => ({ plate, destination: selectedDestination, loaded: false, loadedTime: null, observaciones: "" }));
     updateSchedules({ ...schedules, [selectedDate]: [...existing, ...toAdd] });
     setSelectedPlates([]);
   };
 
-  const removeFromSchedule = (plate) => updateSchedules({ ...schedules, [selectedDate]: (schedules[selectedDate] || []).filter(v => v.plate !== plate) });
+  const removeFromSchedule = (plate) => updateSchedules({ ...schedules, [selectedDate]: (schedules[selectedDate] || []).filter(v => !(v.plate === plate && (v.destination || "Monterrey") === selectedDestination)) });
 
   const toggleLoaded = (plate) => {
     const day = [...(schedules[selectedDate] || [])];
-    const idx = day.findIndex(v => v.plate === plate);
+    const idx = day.findIndex(v => v.plate === plate && (v.destination || "Monterrey") === selectedDestination);
     if (idx === -1) return;
 
     // Si ya está cargado, conserva el comportamiento anterior: permite desmarcarlo.
@@ -304,7 +329,7 @@ export default function App() {
 
   const updateObservaciones = (plate, value) => {
     const day = [...(schedules[selectedDate] || [])];
-    const idx = day.findIndex(v => v.plate === plate);
+    const idx = day.findIndex(v => v.plate === plate && (v.destination || "Monterrey") === selectedDestination);
     if (idx === -1) return;
     day[idx] = { ...day[idx], observaciones: value };
     updateSchedules({ ...schedules, [selectedDate]: day });
@@ -314,7 +339,7 @@ export default function App() {
   const buildWhatsAppText = () => {
     const d = new Date(selectedDate + "T12:00:00");
     const dateLabel = `${DAYS_ES[d.getDay()]} ${d.getDate()} de ${MONTHS_ES[d.getMonth()]} ${d.getFullYear()}`;
-    const lines = [`🚛 *CANAVEN - Programación Vehicular*`, `📅 ${dateLabel}`, ``, `*Vehículos Programados:*`];
+    const lines = [`🚛 *CANAVEN - Programación Vehicular*`, `📍 Destino: ${selectedDestination}`, `📅 ${dateLabel}`, ``, `*Vehículos Programados:*`];
     scheduleForDate.forEach((v, i) => {
       const status = v.loaded ? `✅ Cargado${v.loadedTime ? " · " + v.loadedTime : ""}` : "⏳ Pendiente";
       const obs = v.observaciones ? ` · 📝 ${v.observaciones}` : "";
@@ -625,12 +650,12 @@ export default function App() {
 
   const vehicleTotals = useMemo(() => {
     const totals = {};
-    vehicles.forEach(v => { totals[v.plate] = { scheduled: 0, loaded: 0 }; });
+    vehicles.forEach(v => { totals[`${v.destination || "Monterrey"}::${v.plate}`] = { scheduled: 0, loaded: 0 }; });
     Object.values(schedules).forEach(ds => ds.forEach(v => {
-      if (!totals[v.plate]) totals[v.plate] = { scheduled: 0, loaded: 0 };
-      totals[v.plate].scheduled++;
-      if (v.loaded) totals[v.plate].loaded++;
-
+      const key = `${v.destination || "Monterrey"}::${v.plate}`;
+      if (!totals[key]) totals[key] = { scheduled: 0, loaded: 0 };
+      totals[key].scheduled++;
+      if (v.loaded) totals[key].loaded++;
     }));
     return totals;
   }, [schedules, vehicles]);
@@ -741,7 +766,12 @@ export default function App() {
           <div>
             <div style={{ marginBottom:14 }}>
               <div style={{ fontSize:16, fontWeight:700, marginBottom:2 }}>Gestión de Flota</div>
-              <div style={{ fontSize:12, color:C.muted }}>{vehicles.filter(v=>v.available).length} disponibles · {vehicles.filter(v=>!v.available).length} no disponibles</div>
+              <div style={{ fontSize:12, color:C.muted }}>Destino seleccionado: {selectedDestination}</div>
+            </div>
+            <div style={{ display:"flex", gap:8, marginBottom:10 }}>
+              <select value={selectedDestination} onChange={e=>{setSelectedDestination(e.target.value);setSelectedPlates([]);}} style={{ flex:1, background:C.card, border:`1px solid ${C.border}`, borderRadius:10, padding:"11px 14px", color:C.text, fontSize:14, outline:"none" }}>
+                {destinations.map(d=><option key={d} value={d}>{d}</option>)}
+              </select>
             </div>
             {isAdmin && (
               <div style={{ display:"flex", gap:8, marginBottom:14 }}>
@@ -752,9 +782,18 @@ export default function App() {
                   style={{ background:C.blue, color:"#fff", border:"none", borderRadius:10, padding:"11px 22px", fontSize:18, fontWeight:700, cursor:"pointer" }}>+</button>
               </div>
             )}
+            {isAdmin && (
+              <div style={{ display:"flex", gap:8, marginBottom:14 }}>
+                <input value={newDestination} onChange={e=>setNewDestination(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addDestination()} placeholder="Nuevo destino, Ej: Cartagena" style={{ flex:1, background:C.card, border:`1px solid ${C.border}`, borderRadius:10, padding:"10px 12px", color:C.text, fontSize:13, outline:"none" }} />
+                <button onClick={addDestination} className="tap" style={{ background:C.green, color:"#08110b", border:"none", borderRadius:10, padding:"10px 14px", fontSize:13, fontWeight:800, cursor:"pointer" }}>+ Destino</button>
+              </div>
+            )}
+            <div style={{ marginBottom:10, fontSize:12, color:C.muted }}>
+              {destinationVehicles.filter(v=>v.available).length} disponibles · {destinationVehicles.filter(v=>!v.available).length} no disponibles · {destinationVehicles.length} total
+            </div>
             <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-              {vehicles.map((v, idx) => {
-                const tot = vehicleTotals[v.plate] || {};
+              {destinationVehicles.map((v, idx) => {
+                const tot = vehicleTotals[`${selectedDestination}::${v.plate}`] || {};
                 return (
                   <div key={v.plate} style={{ background:C.card, border:`1.5px solid ${v.available ? C.green+"44" : C.red+"33"}`, borderRadius:12, padding:"12px 14px", position:"relative" }}>
                     <div style={{ position:"absolute", top:0, left:0, width:"100%", height:3, borderRadius:"12px 12px 0 0", background: v.available ? `linear-gradient(90deg,${C.green},transparent)` : `linear-gradient(90deg,${C.red},transparent)` }} />
@@ -864,7 +903,7 @@ export default function App() {
                   <button onClick={clearSelection} className="tap" style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:6, padding:"4px 10px", color:C.muted, cursor:"pointer", fontSize:11, fontWeight:600 }}>Limpiar</button>
                 </div>
               </div>
-              {vehicles.map((v, idx) => {
+              {destinationVehicles.map((v, idx) => {
                 const isScheduled = alreadyScheduled.includes(v.plate);
                 const isSelected = selectedPlates.includes(v.plate);
                 const disabled = !v.available || isScheduled;
@@ -1193,7 +1232,7 @@ export default function App() {
                   })
                   .reduce((sum, [, ds]) => sum + ds.filter(v => v.loaded).length, 0);
                 return vehicles.map((v,i)=>{
-                const t=vehicleTotals[v.plate]||{};
+                const t=vehicleTotals[`${v.destination || "Monterrey"}::${v.plate}`]||{};
                 // Cargados de este vehículo en el mes seleccionado
                 const vehicleMonthLoaded = Object.entries(schedules)
                   .filter(([date]) => {
