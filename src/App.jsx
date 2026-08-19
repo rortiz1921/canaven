@@ -341,7 +341,7 @@ export default function App() {
     const dateLabel = `${DAYS_ES[d.getDay()]} ${d.getDate()} de ${MONTHS_ES[d.getMonth()]} ${d.getFullYear()}`;
     const lines = [`🚛 *CANAVEN - Programación Vehicular*`, `📍 Destino: ${selectedDestination}`, `📅 ${dateLabel}`, ``, `*Vehículos Programados:*`];
     scheduleForDate.forEach((v, i) => {
-      const status = v.loaded ? `✅ Cargado${v.loadedTime ? " · " + v.loadedTime : ""}` : "⏳ Pendiente";
+      const status = v.loaded ? `✅ Cargado${v.loadedTime ? " · " + v.loadedTime : ""}` : "⏳ Programado";
       const obs = v.observaciones ? ` · 📝 ${v.observaciones}` : "";
       lines.push(`${i + 1}. *${v.plate}* — ${status}${obs}`);
     });
@@ -375,7 +375,7 @@ export default function App() {
             date,
             dayName,
             v.plate,
-            v.loaded ? "Cargado" : "Pendiente",
+            v.loaded ? "Cargado" : "Programado",
             v.loadedTime || "",
             v.observaciones || ""
           ]);
@@ -957,7 +957,7 @@ export default function App() {
                         </button>
                       ) : (
                         <div style={{ flex:1, background:v.loaded?C.green+"22":"transparent", color:v.loaded?C.green:C.muted, border:`1px solid ${v.loaded?C.green:C.border}`, borderRadius:10, padding:"9px 10px", fontWeight:700, fontSize:13, textAlign:"center" }}>
-                          {v.loaded?`✓ Cargado · ${v.loadedTime||""}`:"⏳ Pendiente"}
+                          {v.loaded?`✓ Cargado · ${v.loadedTime||""}`:"⏳ Programado"}
                         </div>
                       )}
                     </div>
