@@ -53,7 +53,6 @@ export default function App() {
   const [newPlate, setNewPlate] = useState("");
   const [schedules, setSchedules] = useState({});
   const [selectedDate, setSelectedDate] = useState(getTodayStr());
-  const [reportView, setReportView] = useState("weekly");
   const [selectedPlates, setSelectedPlates] = useState([]);
   const [syncing, setSyncing] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -360,51 +359,56 @@ export default function App() {
   const copyMessage = () => navigator.clipboard.writeText(buildWhatsAppText()).catch(() => {});
   const sendWhatsApp = () => window.open(`https://chat.whatsapp.com/LCkWONNBkq41X0mWV9feOF?text=${encodeURIComponent(buildWhatsAppText())}`, "_blank");
 
-  // CSV Export
-  const downloadCSV = (rangeType) => {
-    const rows = [["Fecha","Dia","Placa","Estado","Hora Cargue","Observaciones"]];
-    const allDates = Object.keys(schedules).sort();
-    let filtered = allDates;
-
-    if (rangeType === "week") {
-      filtered = allDates.filter(d => weekDates.includes(d));
-    } else if (rangeType === "month") {
-      filtered = allDates.filter(d => {
-        const dt = new Date(d + "T12:00:00");
-        return dt.getMonth() === currentMonth && dt.getFullYear() === currentYear;
-      });
+  // CSV Export for the selected date range
+  const downloadCSV = () => {
+    if (!pdfFrom || !pdfTo) {
+      alert("Selecciona las fechas Desde y Hasta.");
+      return;
+    }
+    if (pdfFrom > pdfTo) {
+      alert("La fecha Desde no puede ser posterior a la fecha Hasta.");
+      return;
     }
 
-    filtered.forEach(date => {
+    const rows = [["Fecha","Dia","Placa","Destino","Propietario","Estado","Hora Cargue","N° Cargue","Volumen GOV (Barriles)","Observaciones"]];
+    const filteredDates = Object.keys(schedules)
+      .filter(date => date >= pdfFrom && date <= pdfTo)
+      .sort();
+
+    filteredDates.forEach(date => {
       const d = new Date(date + "T12:00:00");
       const dayName = DAYS_ES[d.getDay()];
       (schedules[date] || []).forEach(v => {
-        if (v.loaded) {
-          rows.push([
-            date,
-            dayName,
-            v.plate,
-            v.loaded ? "Cargado" : "Programado",
-            v.loadedTime || "",
-            v.observaciones || ""
-          ]);
-        }
+        if (!v.loaded) return;
+        rows.push([
+          date,
+          dayName,
+          v.plate,
+          v.destination || "Monterrey",
+          v.owner || "",
+          "Cargado",
+          v.loadedTime || "",
+          v.numeroCargue || "",
+          v.volumenGOV || "",
+          v.observaciones || ""
+        ]);
       });
     });
 
-    const csv = rows.map(r => r.map(c => `"${c}"`).join(",")).join("\n");
-    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+    const csv = rows.map(r => r.map(c => `"${String(c ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
+    const blob = new Blob(["\uFEFF" + csv], { type:"text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    const label = rangeType === "week" ? "semana" : rangeType === "month" ? "mes" : "total";
     a.href = url;
-    a.download = `canaven_viajes_${label}_${selectedDate}.csv`;
+    a.download = `canaven_viajes_${pdfFrom}_a_${pdfTo}.csv`;
+    document.body.appendChild(a);
     a.click();
-    URL.revokeObjectURL(url);
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
   // PDF Report generation
-  const generatePDF = async () => {
+  const generatePDF = async (autoPrint = true) => {
     setGeneratingPdf(true);
     try {
       // Collect data for date range
@@ -422,7 +426,6 @@ export default function App() {
         d.setDate(d.getDate() + 1);
       }
       const total = days.reduce((s, d) => s + d.cargados, 0);
-      const maxVal = Math.max(...days.map(d => d.cargados), 1);
 
       // Build HTML for PDF
       const fromLabel = `${from.getDate()}/${from.getMonth()+1}/${from.getFullYear()}`;
@@ -470,6 +473,7 @@ export default function App() {
       // Build monthly comparison data (last 12 months)
       const monthlyMap = {};
       Object.entries(schedules).forEach(([date, ds]) => {
+        if (date < pdfFrom || date > pdfTo) return;
         const d = new Date(date + "T12:00:00");
         const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
         const label = MONTHS_ES[d.getMonth()].slice(0,3) + " " + String(d.getFullYear()).slice(2);
@@ -480,40 +484,40 @@ export default function App() {
         .sort(([a],[b]) => a.localeCompare(b))
         .slice(-12)
         .map(([,v]) => v);
-      const maxMonth = Math.max(...monthlyArr.map(m => m.total), 1);
-      const mBarW = monthlyArr.length > 0 ? Math.min(55, Math.floor(500 / monthlyArr.length)) : 55;
 
       // Build charts only after monthlyArr has been created
       const dailySVG = buildSVGBars(days.map(d => ({ val: d.cargados, label: d.label })), "#1a56c4");
       const monthlySVG = buildSVGBars(monthlyArr.map(m => ({ val: m.total, label: m.label })), "#b5c832");
 
-      // Vehicle availability % for the PDF report month range
-      const pdfMonthTotal = days.reduce((s, d) => s + d.cargados, 0);
-      const vehicleAvailData = vehicles.map(v => {
-        const loaded = Object.entries(schedules)
-          .filter(([date]) => {
-            const d = new Date(date + "T12:00:00");
-            return d >= from && d <= to;
-          })
-          .reduce((sum, [, ds]) => {
-            const f = ds.find(s => s.plate === v.plate);
-            return sum + (f && f.loaded ? 1 : 0);
-          }, 0);
-        return { plate: v.plate, loaded, pct: pdfMonthTotal > 0 ? Math.round((loaded / pdfMonthTotal) * 100) : 0 };
-      }).filter(d => d.loaded > 0).sort((a, b) => b.loaded - a.loaded);
+      // Cargues realizados por vehículo para el rango del informe.
+      // Se consolida por placa para evitar repetir vehículos.
+      const pdfVehicleMap = {};
+      Object.entries(schedules).forEach(([date, ds]) => {
+        const dt = new Date(date + "T12:00:00");
+        if (dt < from || dt > to) return;
+        ds.forEach(v => {
+          if (!v.loaded) return;
+          const plate = String(v.plate || "").trim().toUpperCase();
+          if (!plate) return;
+          if (!pdfVehicleMap[plate]) pdfVehicleMap[plate] = { plate, loaded:0 };
+          pdfVehicleMap[plate].loaded += 1;
+        });
+      });
+      const vehicleAvailData = Object.values(pdfVehicleMap)
+        .sort((a,b) => b.loaded - a.loaded || a.plate.localeCompare(b.plate));
+      const maxVehicleLoaded = Math.max(...vehicleAvailData.map(v => v.loaded), 1);
 
       const availBarsHtml = vehicleAvailData.map(v => {
-        const barW2 = Math.max(100, 100);
+        const barWidth = Math.round((v.loaded / maxVehicleLoaded) * 200);
         return `<tr>
           <td style="padding:5px 8px;font-weight:bold;font-size:10px;white-space:nowrap;">${v.plate}</td>
           <td style="padding:5px 8px;width:100%;">
             <svg width="200" height="14" xmlns="http://www.w3.org/2000/svg">
               <rect x="0" y="0" width="200" height="14" fill="#eeeeee" rx="3"/>
-              <rect x="0" y="0" width="${Math.round(v.pct*2)}" height="14" fill="${v.pct>=20?"#4ade80":v.pct>=10?"#b5c832":"#1a56c4"}" rx="3"/>
+              <rect x="0" y="0" width="${barWidth}" height="14" fill="#1a56c4" rx="3"/>
             </svg>
           </td>
           <td style="padding:5px 8px;font-size:10px;font-weight:bold;color:#1a56c4;white-space:nowrap;">${v.loaded} cargues</td>
-          <td style="padding:5px 8px;font-size:11px;font-weight:900;color:#b5c832;white-space:nowrap;">${v.pct}%</td>
         </tr>`;
       }).join("");
 
@@ -580,7 +584,7 @@ export default function App() {
         </div>
         <div style="text-align:right;font-size:10px;color:#555;">Informe generado: ${reportDate}</div>
       </div>
-      <h2>INFORME OPERATIVO ${pdfFrom === pdfTo ? "" : "SEMANAL"}</h2>
+      <h2>INFORME OPERATIVO</h2>
       <p><strong>1. FECHA:</strong> ${reportDate}</p>
       <p class="section-title">2. ACTIVIDADES:</p>
       <div class="item">1. Programación de vehículos diarios.</div>
@@ -617,15 +621,15 @@ export default function App() {
         </table>
       </div>
       <div class="table-section">
-        <p class="section-title">7. DISPONIBILIDAD POR VEHÍCULO</p>
+        <p class="section-title">7. CARGUES REALIZADOS POR VEHÍCULO</p>
         <div class="chart-wrap" style="padding:12px;">
-        <div class="chart-title">% Participación de Cargues por Vehículo</div>
+        <div class="chart-title">CANTIDAD DE CARGUES POR VEHÍCULO</div>
         <table style="width:100%;border-collapse:collapse;">
-          <tbody>${availBarsHtml}</tbody>
+          <tbody>${availBarsHtml || `<tr><td colspan="3" style="padding:8px;text-align:center;color:#666;">Sin cargues registrados en el período</td></tr>`}</tbody>
           <tfoot>
             <tr>
-              <td colspan="4" style="padding:6px 8px;font-size:10px;color:#666;border-top:1px solid #ddd;">
-                Total cargues del período: <strong>${pdfMonthTotal}</strong>
+              <td colspan="3" style="padding:6px 8px;font-size:10px;color:#666;border-top:1px solid #ddd;">
+                Total cargues del período: <strong>${total}</strong>
               </td>
             </tr>
           </tfoot>
@@ -633,7 +637,7 @@ export default function App() {
         </div>
       </div>
       <div class="obs-section">
-        <p class="section-title">7. OBSERVACIONES:</p>
+        <p class="section-title">8. OBSERVACIONES:</p>
       ${(pdfObs || `Promedio de cargues por día: ${days.length > 0 ? (total/days.length).toFixed(1) : 0} viajes.`).split("\n").map(l => `<div class="obs-item">• ${l}</div>`).join("")}
       </div>
       <div class="footer">
@@ -656,8 +660,8 @@ export default function App() {
       win.document.title = `CANAVEN - Informe Operativo ${fromLabel} a ${toLabel}`;
       setTimeout(() => {
         win.focus();
-        win.print();
-      }, 400);
+        if (autoPrint) win.print();
+      }, autoPrint ? 400 : 100);
     } catch(e) {
       console.error("Error generando el informe PDF:", e);
       alert("No se pudo generar el informe. Revisa la consola para ver el error.");
@@ -667,57 +671,60 @@ export default function App() {
     setGeneratingPdf(false);
   };
 
-  // Reports
-  const weekDates = useMemo(() => getWeekDates(selectedDate), [selectedDate]);
-  const weeklyData = useMemo(() => weekDates.map(date => {
-    const ds = schedules[date] || [];
-    const d = new Date(date + "T12:00:00");
-    return { name: DAYS_ES[d.getDay()], programados: ds.length, cargados: ds.filter(v => v.loaded).length };
-  }), [schedules, weekDates]);
+  // Reports: all metrics are based only on the date range selected in Informes.
+  const reportDates = useMemo(() => {
+    if (!pdfFrom || !pdfTo || pdfFrom > pdfTo) return [];
+    return Object.keys(schedules)
+      .filter(date => date >= pdfFrom && date <= pdfTo)
+      .sort();
+  }, [schedules, pdfFrom, pdfTo]);
 
-  const currentMonth = new Date(selectedDate + "T12:00:00").getMonth();
-  const currentYear = new Date(selectedDate + "T12:00:00").getFullYear();
-  const monthlyData = useMemo(() => {
-    const byDay = {};
-    Object.entries(schedules).forEach(([date, ds]) => {
+  const reportData = useMemo(() => {
+    return reportDates.map(date => {
       const d = new Date(date + "T12:00:00");
-      if (d.getMonth() === currentMonth && d.getFullYear() === currentYear)
-        byDay[d.getDate()] = { name: `${d.getDate()}`, programados: ds.length, cargados: ds.filter(v => v.loaded).length };
+      const ds = schedules[date] || [];
+      return {
+        name: `${d.getDate()}/${d.getMonth()+1}`,
+        programados: ds.length,
+        cargados: ds.filter(v => v.loaded).length
+      };
     });
-    return Object.values(byDay).sort((a, b) => parseInt(a.name) - parseInt(b.name));
-  }, [schedules, currentMonth, currentYear]);
+  }, [reportDates, schedules]);
 
-  const vehicleTotals = useMemo(() => {
-    const totals = {};
-    vehicles.forEach(v => { totals[`${v.destination || "Monterrey"}::${v.plate}`] = { scheduled: 0, loaded: 0 }; });
-    Object.values(schedules).forEach(ds => ds.forEach(v => {
-      const key = `${v.destination || "Monterrey"}::${v.plate}`;
-      if (!totals[key]) totals[key] = { scheduled: 0, loaded: 0 };
-      totals[key].scheduled++;
-      if (v.loaded) totals[key].loaded++;
-    }));
-    return totals;
-  }, [schedules, vehicles]);
+  const reportTotals = useMemo(() => ({
+    programados: reportData.reduce((s,d) => s + d.programados, 0),
+    cargados: reportData.reduce((s,d) => s + d.cargados, 0)
+  }), [reportData]);
 
-  const reportData = reportView === "weekly" ? weeklyData : monthlyData;
-
-  // Viajes por destino para el período seleccionado en Informes
+  // Viajes por destino para el rango seleccionado.
   const destinationReportData = useMemo(() => {
     const result = {};
-    const dates = reportView === "weekly" ? weekDates : Object.keys(schedules).filter(date => {
-      const d = new Date(date + "T12:00:00");
-      return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
-    });
-    dates.forEach(date => {
+    reportDates.forEach(date => {
       (schedules[date] || []).forEach(v => {
         const destination = v.destination || "Monterrey";
-        if (!result[destination]) result[destination] = { destination, programados: 0, cargados: 0 };
+        if (!result[destination]) result[destination] = { destination, programados:0, cargados:0 };
         result[destination].programados += 1;
         if (v.loaded) result[destination].cargados += 1;
       });
     });
     return Object.values(result).sort((a,b) => a.destination.localeCompare(b.destination));
-  }, [schedules, reportView, weekDates, currentMonth, currentYear]);
+  }, [schedules, reportDates]);
+
+  // Cargues realizados por vehículo: una sola fila por placa, sin repetir.
+  // Si una placa aparece asociada a más de un destino, sus cargues se consolidan.
+  const vehicleLoadedReportData = useMemo(() => {
+    const result = {};
+    reportDates.forEach(date => {
+      (schedules[date] || []).forEach(v => {
+        if (!v.loaded) return;
+        const plate = String(v.plate || "").trim().toUpperCase();
+        if (!plate) return;
+        if (!result[plate]) result[plate] = { plate, cargues:0 };
+        result[plate].cargues += 1;
+      });
+    });
+    return Object.values(result).sort((a,b) => b.cargues - a.cargues || a.plate.localeCompare(b.plate));
+  }, [schedules, reportDates]);
 
   const TABS = [
     { id:"fleet", icon:"🚗", label:"Flota" },
@@ -1059,67 +1066,67 @@ export default function App() {
           <div>
             <div style={{ marginBottom:14 }}>
               <div style={{ fontSize:16, fontWeight:700, marginBottom:2 }}>Informes</div>
-              <div style={{ fontSize:12, color:C.muted }}>Programación, cargas y viajes</div>
-            </div>
-            <div style={{ display:"flex", gap:8, marginBottom:14 }}>
-              <input type="date" value={selectedDate} onChange={e=>setSelectedDate(e.target.value)}
-                style={{ flex:1, background:C.card, border:`1px solid ${C.border}`, borderRadius:10, padding:"10px 12px", color:C.text, fontSize:13, outline:"none" }} />
-              {["weekly","monthly"].map(v=>(
-                <button key={v} onClick={()=>setReportView(v)} className="tap"
-                  style={{ background:reportView===v?C.blue:C.card, color:reportView===v?"#fff":C.muted, border:`1px solid ${reportView===v?C.blue:C.border}`, borderRadius:10, padding:"10px 14px", cursor:"pointer", fontSize:12, fontWeight:700 }}>
-                  {v==="weekly"?"Semana":"Mes"}
-                </button>
-              ))}
-            </div>
-
-            {/* CSV Download */}
-            <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:12, padding:"12px 14px", marginBottom:14 }}>
-              <div style={{ fontSize:11, color:C.muted, marginBottom:10, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.07em" }}>⬇️ Descargar CSV de Viajes</div>
-              <div style={{ display:"flex", gap:8 }}>
-                {[["Semana","week"],["Mes","month"],["Todo","all"]].map(([label, type])=>(
-                  <button key={type} onClick={()=>downloadCSV(type)} className="tap"
-                    style={{ flex:1, background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"9px 4px", color:C.yellowGreen, cursor:"pointer", fontSize:12, fontWeight:700, display:"flex", flexDirection:"column", alignItems:"center", gap:3 }}>
-                    <span style={{ fontSize:16 }}>📥</span>
-                    <span>{label}</span>
-                  </button>
-                ))}
+              <div style={{ fontSize:12, color:C.muted }}>
+                Selecciona el período exacto que quieres consultar y descargar.
               </div>
             </div>
 
-            {/* PDF Report Generator */}
-            <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:12, padding:"14px", marginBottom:14 }}>
-              <div style={{ fontSize:11, color:C.muted, marginBottom:10, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.07em" }}>📄 Generar Informe Operativo PDF</div>
-              <div style={{ display:"flex", gap:8, marginBottom:10 }}>
+            {/* Date range */}
+            <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:"14px", marginBottom:14 }}>
+              <div style={{ fontSize:11, color:C.muted, marginBottom:10, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.07em" }}>
+                📅 Período del informe
+              </div>
+              <div style={{ display:"flex", gap:10 }}>
                 <div style={{ flex:1 }}>
                   <div style={{ fontSize:10, color:C.muted, marginBottom:4 }}>Desde</div>
                   <input type="date" value={pdfFrom} onChange={e=>setPdfFrom(e.target.value)}
-                    style={{ width:"100%", background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"8px 10px", color:C.text, fontSize:12, outline:"none" }} />
+                    style={{ width:"100%", boxSizing:"border-box", background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"9px 10px", color:C.text, fontSize:12, outline:"none" }} />
                 </div>
                 <div style={{ flex:1 }}>
                   <div style={{ fontSize:10, color:C.muted, marginBottom:4 }}>Hasta</div>
                   <input type="date" value={pdfTo} onChange={e=>setPdfTo(e.target.value)}
-                    style={{ width:"100%", background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"8px 10px", color:C.text, fontSize:12, outline:"none" }} />
+                    style={{ width:"100%", boxSizing:"border-box", background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"9px 10px", color:C.text, fontSize:12, outline:"none" }} />
                 </div>
               </div>
-              <div style={{ marginBottom:10 }}>
-                <div style={{ fontSize:10, color:C.muted, marginBottom:4 }}>Observaciones del informe</div>
-                <textarea value={pdfObs} onChange={e=>setPdfObs(e.target.value)}
-                  placeholder="Ej: Promedio de cargues al mes por día 5 viajes..."
-                  rows={3}
-                  style={{ width:"100%", background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"8px 10px", color:C.text, fontSize:12, outline:"none", resize:"vertical", fontFamily:"inherit" }} />
+              {pdfFrom && pdfTo && pdfFrom > pdfTo && (
+                <div style={{ marginTop:8, color:C.red, fontSize:11, fontWeight:700 }}>
+                  ⚠️ La fecha Desde no puede ser posterior a la fecha Hasta.
+                </div>
+              )}
+            </div>
+
+            {/* Export / preview options */}
+            <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:"14px", marginBottom:16 }}>
+              <div style={{ fontSize:11, color:C.muted, marginBottom:10, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.07em" }}>
+                📥 Opciones de descarga
               </div>
-              <button onClick={generatePDF} disabled={generatingPdf} className="tap"
-                style={{ width:"100%", background: generatingPdf ? C.border : "#dc2626", color:"#fff", border:"none", borderRadius:10, padding:"12px 0", fontSize:14, fontWeight:700, cursor: generatingPdf?"not-allowed":"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
-                <span style={{ fontSize:18 }}>📄</span>
-                {generatingPdf ? "Generando..." : "Generar PDF"}
-              </button>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8 }}>
+                <button onClick={downloadCSV} className="tap"
+                  style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:9, padding:"11px 6px", color:C.yellowGreen, cursor:"pointer", fontSize:12, fontWeight:800, display:"flex", flexDirection:"column", alignItems:"center", gap:4 }}>
+                  <span style={{ fontSize:18 }}>📊</span>
+                  <span>Descargar CSV</span>
+                </button>
+                <button onClick={()=>generatePDF(false)} disabled={generatingPdf || !pdfFrom || !pdfTo || pdfFrom > pdfTo} className="tap"
+                  style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:9, padding:"11px 6px", color:C.blue, cursor:generatingPdf?"not-allowed":"pointer", fontSize:12, fontWeight:800, display:"flex", flexDirection:"column", alignItems:"center", gap:4, opacity:(!pdfFrom || !pdfTo || pdfFrom > pdfTo)?0.5:1 }}>
+                  <span style={{ fontSize:18 }}>👁️</span>
+                  <span>Ver informe</span>
+                </button>
+                <button onClick={()=>generatePDF(true)} disabled={generatingPdf || !pdfFrom || !pdfTo || pdfFrom > pdfTo} className="tap"
+                  style={{ background:generatingPdf?C.border:"#dc2626", color:"#fff", border:"none", borderRadius:9, padding:"11px 6px", cursor:generatingPdf?"not-allowed":"pointer", fontSize:12, fontWeight:800, display:"flex", flexDirection:"column", alignItems:"center", gap:4, opacity:(!pdfFrom || !pdfTo || pdfFrom > pdfTo)?0.5:1 }}>
+                  <span style={{ fontSize:18 }}>📄</span>
+                  <span>{generatingPdf ? "Preparando..." : "Descargar PDF"}</span>
+                </button>
+              </div>
+              <div style={{ marginTop:8, color:C.muted, fontSize:10, textAlign:"center" }}>
+                “Ver informe” abre una vista previa; desde allí también puedes usar imprimir/guardar como PDF.
+              </div>
             </div>
 
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:16 }}>
               {[
-                ["Programados",reportData.reduce((s,d)=>s+d.programados,0),"📋",C.blue],
-                ["Cargados",reportData.reduce((s,d)=>s+d.cargados,0),"✅",C.green],
-                ["Cumplimiento",reportData.reduce((s,d)=>s+d.programados,0)>0?Math.round(reportData.reduce((s,d)=>s+d.cargados,0)/reportData.reduce((s,d)=>s+d.programados,0)*100)+"%":"—","📈","#c084fc"],
+                ["Programados",reportTotals.programados,"📋",C.blue],
+                ["Cargados",reportTotals.cargados,"✅",C.green],
+                ["Cumplimiento",reportTotals.programados>0?Math.round(reportTotals.cargados/reportTotals.programados*100)+"%":"—","📈","#c084fc"],
               ].map(([label,val,icon,color])=>(
                 <div key={label} style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:12, padding:"14px", position:"relative", overflow:"hidden" }}>
                   <div style={{ position:"absolute", bottom:4, right:8, fontSize:32, opacity:0.07 }}>{icon}</div>
@@ -1128,10 +1135,40 @@ export default function App() {
                 </div>
               ))}
             </div>
+
+            {/* Daily chart for selected range */}
+            <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:"14px 8px", marginBottom:16 }}>
+              <div style={{ fontWeight:700, fontSize:13, marginBottom:4, paddingLeft:8 }}>
+                Cargues por día
+              </div>
+              <div style={{ fontSize:11, color:C.muted, marginBottom:12, paddingLeft:8 }}>
+                {pdfFrom && pdfTo ? `Período: ${pdfFrom} a ${pdfTo}` : "Selecciona un período"}
+              </div>
+              {reportData.length===0 ? (
+                <div style={{ textAlign:"center", padding:"28px", color:C.muted, fontSize:13 }}>
+                  Sin datos para este período
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={reportData} margin={{ top:0, right:4, left:-16, bottom:20 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
+                    <XAxis dataKey="name" tick={{ fill:C.muted, fontSize:9 }} axisLine={{ stroke:C.border }} tickLine={false} angle={-35} textAnchor="end" interval={0} />
+                    <YAxis tick={{ fill:C.muted, fontSize:10 }} axisLine={false} tickLine={false} />
+                    <Tooltip contentStyle={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, fontSize:12, color:C.text }} />
+                    <Legend wrapperStyle={{ fontSize:11, color:C.muted }} />
+                    <Bar dataKey="programados" name="Programados" fill={C.blue} radius={[4,4,0,0]} />
+                    <Bar dataKey="cargados" name="Cargados" fill={C.green} radius={[4,4,0,0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+
             {/* Viajes por destino */}
             <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:"14px", marginBottom:16 }}>
               <div style={{ fontWeight:700, fontSize:13, marginBottom:4 }}>Viajes por destino</div>
-              <div style={{ fontSize:11, color:C.muted, marginBottom:12 }}>Cantidad de viajes según el destino del período seleccionado</div>
+              <div style={{ fontSize:11, color:C.muted, marginBottom:12 }}>
+                Cantidad de viajes según el destino en el período seleccionado.
+              </div>
               {destinationReportData.length===0 ? (
                 <div style={{ textAlign:"center", padding:"18px", color:C.muted, fontSize:12 }}>Sin viajes registrados para este período</div>
               ) : (
@@ -1139,7 +1176,9 @@ export default function App() {
                   <table style={{ width:"100%", borderCollapse:"collapse", fontSize:12 }}>
                     <thead>
                       <tr style={{ background:C.surface }}>
-                        {['Destino','Programados','Cargados'].map(h=><th key={h} style={{ padding:"8px 10px", textAlign:h==='Destino'?"left":"center", fontSize:10, color:C.muted, textTransform:"uppercase", borderBottom:`1px solid ${C.border}` }}>{h}</th>)}
+                        {["Destino","Programados","Cargados"].map(h=>(
+                          <th key={h} style={{ padding:"8px 10px", textAlign:h==="Destino"?"left":"center", fontSize:10, color:C.muted, textTransform:"uppercase", borderBottom:`1px solid ${C.border}` }}>{h}</th>
+                        ))}
                       </tr>
                     </thead>
                     <tbody>
@@ -1163,223 +1202,98 @@ export default function App() {
               )}
             </div>
 
+            {/* Monthly comparison within the selected range */}
             <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:"14px 8px", marginBottom:16 }}>
-              <div style={{ fontWeight:700, fontSize:13, marginBottom:12, paddingLeft:8 }}>
-                {reportView==="weekly"?`Semana del ${weekDates[0]}`:`${MONTHS_ES[currentMonth]} ${currentYear}`}
+              <div style={{ fontWeight:700, fontSize:13, marginBottom:4, paddingLeft:8 }}>Comparativo mensual de cargues</div>
+              <div style={{ fontSize:11, color:C.muted, marginBottom:12, paddingLeft:8 }}>
+                Solo se muestran los meses incluidos en las fechas seleccionadas.
               </div>
-              {reportData.length===0?(
-                <div style={{ textAlign:"center", padding:"28px", color:C.muted, fontSize:13 }}>Sin datos para este período</div>
-              ):(
-                <ResponsiveContainer width="100%" height={220}>
-                  <BarChart data={reportData} margin={{ top:0, right:4, left:-16, bottom:0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
-                    <XAxis dataKey="name" tick={{ fill:C.muted, fontSize:11 }} axisLine={{ stroke:C.border }} tickLine={false} />
-                    <YAxis tick={{ fill:C.muted, fontSize:10 }} axisLine={false} tickLine={false} />
-                    <Tooltip contentStyle={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, fontSize:12, color:C.text }} />
-                    <Legend wrapperStyle={{ fontSize:11, color:C.muted }} />
-                    <Bar dataKey="programados" name="Prog." fill={C.blue} radius={[4,4,0,0]} />
-                    <Bar dataKey="cargados" name="Carg." fill={C.green} radius={[4,4,0,0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              )}
-            </div>
-            {/* Monthly comparison chart */}
-            <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:"14px 8px", marginBottom:16 }}>
-              <div style={{ fontWeight:700, fontSize:13, marginBottom:4, paddingLeft:8 }}>Comparativo Mensual de Cargues</div>
-              <div style={{ fontSize:11, color:C.muted, marginBottom:12, paddingLeft:8 }}>Total cargados por mes</div>
               {(() => {
                 const monthlyMap = {};
-                Object.entries(schedules).forEach(([date, ds]) => {
+                reportDates.forEach(date => {
                   const d = new Date(date + "T12:00:00");
                   const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
-                  const label = MONTHS_ES[d.getMonth()].slice(0,3) + "\n" + d.getFullYear();
-                  if (!monthlyMap[key]) monthlyMap[key] = { label, total: 0, prog: 0 };
-                  monthlyMap[key].total += ds.filter(v => v.loaded).length;
+                  const label = MONTHS_ES[d.getMonth()].slice(0,3) + " " + String(d.getFullYear()).slice(2);
+                  if (!monthlyMap[key]) monthlyMap[key] = { label, total:0, prog:0 };
+                  const ds = schedules[date] || [];
+                  monthlyMap[key].total += ds.filter(v=>v.loaded).length;
                   monthlyMap[key].prog += ds.length;
                 });
-                const monthlyArr = Object.entries(monthlyMap)
-                  .sort(([a],[b]) => a.localeCompare(b))
-                  .map(([, v]) => v);
-                if (monthlyArr.length === 0) return (
-                  <div style={{ textAlign:"center", padding:"28px", color:C.muted, fontSize:13 }}>Sin datos mensuales aún</div>
-                );
-                const data = monthlyArr.map(m => ({ name: m.label.replace("\n"," "), programados: m.prog, cargados: m.total }));
+                const monthlyArr = Object.entries(monthlyMap).sort(([a],[b])=>a.localeCompare(b)).map(([,v])=>v);
+                if (!monthlyArr.length) return <div style={{ textAlign:"center", padding:"28px", color:C.muted, fontSize:13 }}>Sin datos mensuales para este período</div>;
+                const data = monthlyArr.map(m=>({ name:m.label, programados:m.prog, cargados:m.total }));
                 return (
-                  <ResponsiveContainer width="100%" height={240}>
-                    <BarChart data={data} margin={{ top:0, right:4, left:-16, bottom:20 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
-                      <XAxis dataKey="name" tick={{ fill:C.muted, fontSize:9 }} axisLine={{ stroke:C.border }} tickLine={false} angle={-35} textAnchor="end" interval={0} />
-                      <YAxis tick={{ fill:C.muted, fontSize:10 }} axisLine={false} tickLine={false} />
-                      <Tooltip contentStyle={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, fontSize:12, color:C.text }} />
-                      <Legend wrapperStyle={{ fontSize:11, color:C.muted }} />
-                      <Bar dataKey="programados" name="Programados" fill={C.blue} radius={[4,4,0,0]} />
-                      <Bar dataKey="cargados" name="Cargados" fill={C.green} radius={[4,4,0,0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                );
-              })()}
-              {/* Monthly totals table */}
-              {(() => {
-                const monthlyMap = {};
-                Object.entries(schedules).forEach(([date, ds]) => {
-                  const d = new Date(date + "T12:00:00");
-                  const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
-                  const label = MONTHS_ES[d.getMonth()] + " " + d.getFullYear();
-                  if (!monthlyMap[key]) monthlyMap[key] = { label, total: 0, prog: 0 };
-                  monthlyMap[key].total += ds.filter(v => v.loaded).length;
-                  monthlyMap[key].prog += ds.length;
-                });
-                const monthlyArr = Object.entries(monthlyMap).sort(([a],[b]) => a.localeCompare(b)).map(([,v]) => v);
-                if (monthlyArr.length === 0) return null;
-                const grandTotal = monthlyArr.reduce((s, m) => s + m.total, 0);
-                const grandProg = monthlyArr.reduce((s, m) => s + m.prog, 0);
-                return (
-                  <div style={{ marginTop:14, overflowX:"auto" }}>
-                    <table style={{ width:"100%", borderCollapse:"collapse", fontSize:12, fontFamily:"inherit" }}>
-                      <thead>
-                        <tr style={{ background:C.surface }}>
-                          {["Mes","Programados","Cargados","% del Total"].map(h => (
-                            <th key={h} style={{ padding:"8px 10px", textAlign:"left", fontSize:10, color:C.muted, textTransform:"uppercase", letterSpacing:"0.06em", borderBottom:`1px solid ${C.border}` }}>{h}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {monthlyArr.map((m, i) => {
-                          const eff = grandTotal > 0 ? Math.round((m.total/grandTotal)*100) : 0;
-                          return (
-                            <tr key={i} style={{ borderBottom:`1px solid ${C.border}`, background: i%2===0?"transparent":C.surface+"44" }}>
-                              <td style={{ padding:"9px 10px", fontWeight:700, color:C.text }}>{m.label}</td>
+                  <>
+                    <ResponsiveContainer width="100%" height={240}>
+                      <BarChart data={data} margin={{ top:0, right:4, left:-16, bottom:20 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
+                        <XAxis dataKey="name" tick={{ fill:C.muted, fontSize:9 }} axisLine={{ stroke:C.border }} tickLine={false} />
+                        <YAxis tick={{ fill:C.muted, fontSize:10 }} axisLine={false} tickLine={false} />
+                        <Tooltip contentStyle={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, fontSize:12, color:C.text }} />
+                        <Legend wrapperStyle={{ fontSize:11, color:C.muted }} />
+                        <Bar dataKey="programados" name="Programados" fill={C.blue} radius={[4,4,0,0]} />
+                        <Bar dataKey="cargados" name="Cargados" fill={C.green} radius={[4,4,0,0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                    <div style={{ marginTop:14, overflowX:"auto" }}>
+                      <table style={{ width:"100%", borderCollapse:"collapse", fontSize:12 }}>
+                        <thead>
+                          <tr style={{ background:C.surface }}>
+                            {["Mes","Programados","Cargados"].map(h=>(
+                              <th key={h} style={{ padding:"8px 10px", textAlign:"left", fontSize:10, color:C.muted, textTransform:"uppercase", borderBottom:`1px solid ${C.border}` }}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {monthlyArr.map((m,i)=>(
+                            <tr key={i} style={{ borderBottom:`1px solid ${C.border}`, background:i%2===0?"transparent":C.surface+"44" }}>
+                              <td style={{ padding:"9px 10px", fontWeight:700 }}>{m.label}</td>
                               <td style={{ padding:"9px 10px", color:C.blue, fontWeight:600 }}>{m.prog}</td>
                               <td style={{ padding:"9px 10px", color:C.green, fontWeight:600 }}>{m.total}</td>
-                              <td style={{ padding:"9px 10px" }}>
-                                <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-                                  <div style={{ flex:1, height:5, background:C.border, borderRadius:3, overflow:"hidden" }}>
-                                    <div style={{ width:`${eff}%`, height:"100%", background: eff>=25?C.green:eff>=10?C.yellowGreen:C.red, borderRadius:3 }} />
-                                  </div>
-                                  <span style={{ fontSize:11, fontWeight:700, color: eff>=25?C.green:eff>=10?C.yellowGreen:C.muted, minWidth:30 }}>{eff}%</span>
-                                </div>
-                              </td>
                             </tr>
-                          );
-                        })}
-                      </tbody>
-                      <tfoot>
-                        <tr style={{ background:C.surface, borderTop:`2px solid ${C.border}` }}>
-                          <td style={{ padding:"9px 10px", fontWeight:800, color:C.text }}>TOTAL</td>
-                          <td style={{ padding:"9px 10px", fontWeight:800, color:C.blue }}>{grandProg}</td>
-                          <td style={{ padding:"9px 10px", fontWeight:800, color:C.green }}>{grandTotal}</td>
-                          <td style={{ padding:"9px 10px", fontWeight:800, color:C.yellowGreen }}>
-                            100%
-                          </td>
-                        </tr>
-                      </tfoot>
-                    </table>
-                  </div>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
                 );
               })()}
             </div>
 
-            {/* Vehicle availability % chart for the selected month */}
+            {/* Cargues realizados por vehículo - one row per plate */}
             <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:"14px 8px", marginBottom:16 }}>
-              <div style={{ fontWeight:700, fontSize:13, marginBottom:2, paddingLeft:8 }}>% Disponibilidad por Vehículo</div>
-              <div style={{ fontSize:11, color:C.muted, marginBottom:12, paddingLeft:8 }}>
-                Participación de cargues en {MONTHS_ES[currentMonth]} {currentYear}
+              <div style={{ fontWeight:700, fontSize:13, marginBottom:2, paddingLeft:8 }}>
+                Cargues realizados por vehículo
               </div>
-              {(() => {
-                const monthTotal = Object.entries(schedules)
-                  .filter(([date]) => { const d = new Date(date+"T12:00:00"); return d.getMonth()===currentMonth && d.getFullYear()===currentYear; })
-                  .reduce((sum,[,ds]) => sum + ds.filter(v=>v.loaded).length, 0);
-                const data = vehicles.map(v => {
-                  const loaded = Object.entries(schedules)
-                    .filter(([date]) => { const d = new Date(date+"T12:00:00"); return d.getMonth()===currentMonth && d.getFullYear()===currentYear; })
-                    .reduce((sum,[,ds]) => { const f=ds.find(s=>s.plate===v.plate); return sum+(f&&f.loaded?1:0); }, 0);
-                  return { name: v.plate, value: loaded, pct: monthTotal>0?Math.round((loaded/monthTotal)*100):0 };
-                }).filter(d => d.value > 0).sort((a,b) => b.value - a.value);
-                if (data.length === 0) return (
-                  <div style={{ textAlign:"center", padding:"20px", color:C.muted, fontSize:13 }}>Sin datos para {MONTHS_ES[currentMonth]} {currentYear}</div>
-                );
-                const maxVal = data[0].value;
-                return (
-                  <div style={{ padding:"0 8px" }}>
-                    {data.map((d, i) => (
-                      <div key={d.name} style={{ marginBottom:10 }}>
+              <div style={{ fontSize:11, color:C.muted, marginBottom:12, paddingLeft:8 }}>
+                Cantidad de cargues realizados por cada placa entre {pdfFrom} y {pdfTo}. Las placas se consolidan para no repetirlas.
+              </div>
+              {vehicleLoadedReportData.length===0 ? (
+                <div style={{ textAlign:"center", padding:"20px", color:C.muted, fontSize:13 }}>
+                  Sin cargues realizados para este período
+                </div>
+              ) : (
+                <div style={{ padding:"0 8px" }}>
+                  {(() => {
+                    const maxLoads = Math.max(...vehicleLoadedReportData.map(v=>v.cargues), 1);
+                    return vehicleLoadedReportData.map((v,i)=>(
+                      <div key={v.plate} style={{ marginBottom:10 }}>
                         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:4 }}>
-                          <span style={{ fontWeight:800, fontSize:13, color:C.text, letterSpacing:"0.05em" }}>{d.name}</span>
-                          <div style={{ display:"flex", gap:10, alignItems:"center" }}>
-                            <span style={{ fontSize:12, color:C.green, fontWeight:700 }}>{d.value} cargues</span>
-                            <span style={{ fontSize:13, fontWeight:900, color:C.yellowGreen, minWidth:36, textAlign:"right" }}>{d.pct}%</span>
-                          </div>
+                          <span style={{ fontWeight:800, fontSize:13, color:C.text, letterSpacing:"0.05em" }}>{v.plate}</span>
+                          <span style={{ fontSize:12, color:C.green, fontWeight:800 }}>{v.cargues} cargues</span>
                         </div>
                         <div style={{ height:10, background:C.surface, borderRadius:5, overflow:"hidden", border:`1px solid ${C.border}` }}>
-                          <div style={{ 
-                            width:`${d.pct}%`, height:"100%", borderRadius:5,
-                            background: d.pct>=20?C.green:d.pct>=10?C.yellowGreen:C.blue,
-                            transition:"width 0.4s"
-                          }} />
+                          <div style={{ width:`${Math.round((v.cargues/maxLoads)*100)}%`, height:"100%", borderRadius:5, background:C.blue }} />
                         </div>
                       </div>
-                    ))}
-                    <div style={{ marginTop:12, padding:"8px 10px", background:C.surface, borderRadius:8, display:"flex", justifyContent:"space-between", fontSize:12 }}>
-                      <span style={{ color:C.muted }}>Total cargues del mes:</span>
-                      <span style={{ fontWeight:800, color:C.green }}>{monthTotal}</span>
-                    </div>
+                    ));
+                  })()}
+                  <div style={{ marginTop:12, padding:"8px 10px", background:C.surface, borderRadius:8, display:"flex", justifyContent:"space-between", fontSize:12 }}>
+                    <span style={{ color:C.muted }}>Total cargues realizados:</span>
+                    <span style={{ fontWeight:800, color:C.green }}>{reportTotals.cargados}</span>
                   </div>
-                );
-              })()}
-            </div>
-
-            <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, overflow:"hidden" }}>
-              <div style={{ padding:"11px 14px", borderBottom:`1px solid ${C.border}`, fontSize:13, fontWeight:700 }}>Por Vehículo</div>
-              {(() => {
-                // Total cargados en el mes seleccionado
-                const monthTotal = Object.entries(schedules)
-                  .filter(([date]) => {
-                    const d = new Date(date + "T12:00:00");
-                    return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
-                  })
-                  .reduce((sum, [, ds]) => sum + ds.filter(v => v.loaded).length, 0);
-                return vehicles.map((v,i)=>{
-                const t=vehicleTotals[`${v.destination || "Monterrey"}::${v.plate}`]||{};
-                // Cargados de este vehículo en el mes seleccionado
-                const vehicleMonthLoaded = Object.entries(schedules)
-                  .filter(([date]) => {
-                    const d = new Date(date + "T12:00:00");
-                    return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
-                  })
-                  .reduce((sum, [, ds]) => {
-                    const found = ds.find(s => s.plate === v.plate);
-                    return sum + (found && found.loaded ? 1 : 0);
-                  }, 0);
-                const eff = monthTotal > 0 ? Math.round((vehicleMonthLoaded / monthTotal) * 100) : 0;
-                return (
-                  <div key={v.plate} style={{ padding:"11px 14px", borderBottom:`1px solid ${C.border}`, background:i%2===0?"transparent":C.surface+"44" }}>
-                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:7 }}>
-                      <div style={{ display:"flex", gap:8, alignItems:"center" }}>
-                        <span style={{ fontSize:10, color:C.muted, fontWeight:700 }}>{i+1}</span>
-                        <span style={{ fontWeight:900, fontSize:15, color:C.yellowGreen, letterSpacing:"0.05em" }}>{v.plate}</span>
-                      </div>
-                      <span style={{...badge(v.available),fontSize:9}}>{v.available?"Disp.":"No Disp."}</span>
-                    </div>
-                    <div style={{ display:"flex", gap:12, marginBottom:7 }}>
-                      {[["Prog",t.scheduled||0,C.blue],["Carg",t.loaded||0,C.green]].map(([lbl,val,color])=>(
-                        <div key={lbl} style={{ textAlign:"center" }}>
-                          <div style={{ fontSize:14, fontWeight:800, color }}>{val}</div>
-                          <div style={{ fontSize:9, color:C.muted }}>{lbl}</div>
-                        </div>
-                      ))}
-                      <div style={{ flex:1 }} />
-                      <div style={{ textAlign:"right" }}>
-                        <div style={{ fontSize:14, fontWeight:800, color:eff>=80?C.green:eff>=50?C.yellowGreen:C.muted }}>{eff}%</div>
-                        <div style={{ fontSize:9, color:C.muted }}>Efic.</div>
-                      </div>
-                    </div>
-                    <div style={{ height:4, background:C.surface, borderRadius:3, overflow:"hidden" }}>
-                      <div style={{ width:`${eff}%`, height:"100%", background:eff>=80?C.green:eff>=50?C.yellowGreen:C.red, borderRadius:3 }} />
-                    </div>
-                  </div>
-                );
-              });
-              })()}
+                </div>
+              )}
             </div>
           </div>
         )}
