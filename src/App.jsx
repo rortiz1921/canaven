@@ -58,6 +58,7 @@ export default function App() {
   const [syncing, setSyncing] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [replaceInput, setReplaceInput] = useState({}); // { plate: inputValue }
+  const [ownerInputs, setOwnerInputs] = useState({}); // { "destino::placa": propietario }
   const [pdfFrom, setPdfFrom] = useState(getTodayStr());
   const [pdfTo, setPdfTo] = useState(getTodayStr());
   const [pdfObs, setPdfObs] = useState("");
@@ -146,6 +147,14 @@ export default function App() {
     setNewPlate("");
   };
   const removeVehicle = (plate) => updateVehicles(vehicles.filter(v => !(v.plate === plate && (v.destination || "Monterrey") === selectedDestination)));
+  const ownerKey = (plate) => `${selectedDestination}::${plate}`;
+  const saveOwner = (plate) => {
+    const key = ownerKey(plate);
+    const value = (ownerInputs[key] ?? destinationVehicles.find(v => v.plate === plate)?.owner ?? "").trim();
+    const nv = vehicles.map(v => (v.plate === plate && (v.destination || "Monterrey") === selectedDestination) ? { ...v, owner: value } : v);
+    updateVehicles(nv);
+    setOwnerInputs(prev => ({ ...prev, [key]: value }));
+  };
   const toggleAvailability = (plate) => {
     updateVehicles(vehicles.map(v => v.plate === plate && (v.destination || "Monterrey") === selectedDestination ? { ...v, available: !v.available } : v));
     setSelectedPlates(prev => prev.filter(p => p !== plate));
@@ -804,6 +813,21 @@ export default function App() {
                       </div>
                       {isAdmin && <button onClick={()=>removeVehicle(v.plate)} style={{ background:"transparent", border:"none", color:C.muted, fontSize:18, cursor:"pointer", padding:"2px 6px" }}>✕</button>}
                     </div>
+                    {isAdmin && (
+                      <div style={{ display:"flex", gap:6, alignItems:"center", marginBottom:8 }}>
+                        <input
+                          value={ownerInputs[ownerKey(v.plate)] ?? v.owner ?? ""}
+                          onChange={e => setOwnerInputs(prev => ({ ...prev, [ownerKey(v.plate)]: e.target.value }))}
+                          onKeyDown={e => e.key === "Enter" && saveOwner(v.plate)}
+                          placeholder="Nombre del propietario"
+                          style={{ flex:1, background:C.surface, border:`1px solid ${C.border}`, borderRadius:7, padding:"8px 10px", color:C.text, fontSize:12, outline:"none" }}
+                        />
+                        <button onClick={() => saveOwner(v.plate)} className="tap"
+                          style={{ background:C.blue, color:"#fff", border:"none", borderRadius:7, padding:"8px 11px", fontSize:12, fontWeight:700, cursor:"pointer" }}>
+                          💾 Guardar
+                        </button>
+                      </div>
+                    )}
                     <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom: isAdmin && !v.replacedBy ? 8 : 0 }}>
                       {isAdmin ? (
                         <button onClick={()=>!v.replacedBy && toggleAvailability(v.plate)} className="tap"
