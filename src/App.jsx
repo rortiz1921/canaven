@@ -470,28 +470,16 @@ export default function App() {
 
       const chartH = 180;
 
-      // Comparativo mensual: muestra hasta los últimos 12 meses que
-      // realmente tengan cargues. No depende del rango de fechas del informe.
+      // Build monthly comparison data (last 12 months)
       const monthlyMap = {};
-
       Object.entries(schedules).forEach(([date, ds]) => {
-        const cargues = ds.filter(v => v.loaded).length;
-        if (!cargues) return;
-
+        if (date < pdfFrom || date > pdfTo) return;
         const d = new Date(date + "T12:00:00");
         const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
-        if (!monthlyMap[key]) {
-          monthlyMap[key] = {
-            label: MONTHS_ES[d.getMonth()].slice(0,3) + " " + String(d.getFullYear()).slice(2),
-            total: 0,
-            prog: 0
-          };
-        }
-        monthlyMap[key].total += cargues;
-        monthlyMap[key].prog += ds.length;
+        const label = MONTHS_ES[d.getMonth()].slice(0,3) + " " + String(d.getFullYear()).slice(2);
+        if (!monthlyMap[key]) monthlyMap[key] = { label, total: 0 };
+        monthlyMap[key].total += ds.filter(v => v.loaded).length;
       });
-
-      // Orden cronológico y máximo 12 meses con cargues.
       const monthlyArr = Object.entries(monthlyMap)
         .sort(([a],[b]) => a.localeCompare(b))
         .slice(-12)
@@ -1214,36 +1202,25 @@ export default function App() {
               )}
             </div>
 
-            {/* Monthly comparison: up to the last 12 months that have loads */}
+            {/* Monthly comparison within the selected range */}
             <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:"14px 8px", marginBottom:16 }}>
               <div style={{ fontWeight:700, fontSize:13, marginBottom:4, paddingLeft:8 }}>Comparativo mensual de cargues</div>
               <div style={{ fontSize:11, color:C.muted, marginBottom:12, paddingLeft:8 }}>
-                Hasta los últimos 12 meses con cargues. Este comparativo no depende del rango de fechas seleccionado arriba.
+                Solo se muestran los meses incluidos en las fechas seleccionadas.
               </div>
               {(() => {
                 const monthlyMap = {};
-
-                Object.entries(schedules).forEach(([date, ds]) => {
-                  const cargues = ds.filter(v=>v.loaded).length;
-                  if (!cargues) return;
-
+                reportDates.forEach(date => {
                   const d = new Date(date + "T12:00:00");
                   const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
-                  if (!monthlyMap[key]) {
-                    monthlyMap[key] = {
-                      label: MONTHS_ES[d.getMonth()].slice(0,3) + " " + String(d.getFullYear()).slice(2),
-                      total:0,
-                      prog:0
-                    };
-                  }
-                  monthlyMap[key].total += cargues;
+                  const label = MONTHS_ES[d.getMonth()].slice(0,3) + " " + String(d.getFullYear()).slice(2);
+                  if (!monthlyMap[key]) monthlyMap[key] = { label, total:0, prog:0 };
+                  const ds = schedules[date] || [];
+                  monthlyMap[key].total += ds.filter(v=>v.loaded).length;
                   monthlyMap[key].prog += ds.length;
                 });
-
-                const monthlyArr = Object.entries(monthlyMap)
-                  .sort(([a],[b])=>a.localeCompare(b))
-                  .slice(-12)
-                  .map(([,v])=>v);
+                const monthlyArr = Object.entries(monthlyMap).sort(([a],[b])=>a.localeCompare(b)).map(([,v])=>v);
+                if (!monthlyArr.length) return <div style={{ textAlign:"center", padding:"28px", color:C.muted, fontSize:13 }}>Sin datos mensuales para este período</div>;
                 const data = monthlyArr.map(m=>({ name:m.label, programados:m.prog, cargados:m.total }));
                 return (
                   <>
