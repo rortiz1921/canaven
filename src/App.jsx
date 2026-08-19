@@ -522,6 +522,28 @@ export default function App() {
          <td style="border:1px solid #ccc;padding:6px 12px;text-align:center;font-weight:bold;">${day.cargados}</td></tr>`
       ).join("");
 
+      // Cantidad de viajes por destino para el rango del informe
+      const destinationMap = {};
+      Object.entries(schedules).forEach(([date, ds]) => {
+        const dt = new Date(date + "T12:00:00");
+        if (dt < from || dt > to) return;
+        ds.forEach(v => {
+          const destination = v.destination || "Monterrey";
+          if (!destinationMap[destination]) destinationMap[destination] = { programados: 0, cargados: 0 };
+          destinationMap[destination].programados += 1;
+          if (v.loaded) destinationMap[destination].cargados += 1;
+        });
+      });
+      const destinationRows = Object.entries(destinationMap)
+        .sort(([a],[b]) => a.localeCompare(b))
+        .map(([destination, values]) => `<tr>
+          <td style="border:1px solid #ccc;padding:6px 12px;font-weight:bold;">${destination}</td>
+          <td style="border:1px solid #ccc;padding:6px 12px;text-align:center;">${values.programados}</td>
+          <td style="border:1px solid #ccc;padding:6px 12px;text-align:center;font-weight:bold;">${values.cargados}</td>
+        </tr>`).join("");
+      const destinationTotalProgramados = Object.values(destinationMap).reduce((s,v) => s + v.programados, 0);
+      const destinationTotalCargados = Object.values(destinationMap).reduce((s,v) => s + v.cargados, 0);
+
       const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
       <style>
         @page{size:auto;margin:0;}
@@ -572,14 +594,22 @@ export default function App() {
         ${dailySVG}
         <div style="text-align:center;margin-top:4px;font-size:9px;color:#555;">■ CARGUES</div>
       </div>
-      <p class="section-title">4. COMPARATIVO MENSUAL DE CARGUES</p>
+      <div class="table-section">
+        <p class="section-title">4. CANTIDAD DE VIAJES POR DESTINO</p>
+        <table style="width:100%;">
+          <thead><tr><th>DESTINO</th><th>PROGRAMADOS</th><th>CARGADOS</th></tr></thead>
+          <tbody>${destinationRows || `<tr><td colspan="3" style="border:1px solid #ccc;padding:8px;text-align:center;">Sin viajes registrados en el período</td></tr>`}</tbody>
+          <tfoot><tr><td>TOTAL</td><td>${destinationTotalProgramados}</td><td>${destinationTotalCargados}</td></tr></tfoot>
+        </table>
+      </div>
+      <p class="section-title">5. COMPARATIVO MENSUAL DE CARGUES</p>
       <div class="chart-wrap">
         <div class="chart-title">CARGUES POR MES</div>
         ${monthlySVG}
         <div style="text-align:center;margin-top:4px;font-size:9px;color:#555;">■ TOTAL CARGUES POR MES</div>
       </div>
       <div class="table-section">
-        <p class="section-title">5. INDICADOR: DEL ${fromLabel.toUpperCase()} A ${toLabel.toUpperCase()}</p>
+        <p class="section-title">6. INDICADOR: DEL ${fromLabel.toUpperCase()} A ${toLabel.toUpperCase()}</p>
         <table>
           <thead><tr><th>DIA</th><th>VIAJES</th></tr></thead>
           <tbody>${tableRows}</tbody>
@@ -587,7 +617,7 @@ export default function App() {
         </table>
       </div>
       <div class="table-section">
-        <p class="section-title">6. DISPONIBILIDAD POR VEHÍCULO</p>
+        <p class="section-title">7. DISPONIBILIDAD POR VEHÍCULO</p>
         <div class="chart-wrap" style="padding:12px;">
         <div class="chart-title">% Participación de Cargues por Vehículo</div>
         <table style="width:100%;border-collapse:collapse;">
@@ -670,6 +700,24 @@ export default function App() {
   }, [schedules, vehicles]);
 
   const reportData = reportView === "weekly" ? weeklyData : monthlyData;
+
+  // Viajes por destino para el período seleccionado en Informes
+  const destinationReportData = useMemo(() => {
+    const result = {};
+    const dates = reportView === "weekly" ? weekDates : Object.keys(schedules).filter(date => {
+      const d = new Date(date + "T12:00:00");
+      return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+    });
+    dates.forEach(date => {
+      (schedules[date] || []).forEach(v => {
+        const destination = v.destination || "Monterrey";
+        if (!result[destination]) result[destination] = { destination, programados: 0, cargados: 0 };
+        result[destination].programados += 1;
+        if (v.loaded) result[destination].cargados += 1;
+      });
+    });
+    return Object.values(result).sort((a,b) => a.destination.localeCompare(b.destination));
+  }, [schedules, reportView, weekDates, currentMonth, currentYear]);
 
   const TABS = [
     { id:"fleet", icon:"🚗", label:"Flota" },
@@ -1080,6 +1128,41 @@ export default function App() {
                 </div>
               ))}
             </div>
+            {/* Viajes por destino */}
+            <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:"14px", marginBottom:16 }}>
+              <div style={{ fontWeight:700, fontSize:13, marginBottom:4 }}>Viajes por destino</div>
+              <div style={{ fontSize:11, color:C.muted, marginBottom:12 }}>Cantidad de viajes según el destino del período seleccionado</div>
+              {destinationReportData.length===0 ? (
+                <div style={{ textAlign:"center", padding:"18px", color:C.muted, fontSize:12 }}>Sin viajes registrados para este período</div>
+              ) : (
+                <div style={{ overflowX:"auto" }}>
+                  <table style={{ width:"100%", borderCollapse:"collapse", fontSize:12 }}>
+                    <thead>
+                      <tr style={{ background:C.surface }}>
+                        {['Destino','Programados','Cargados'].map(h=><th key={h} style={{ padding:"8px 10px", textAlign:h==='Destino'?"left":"center", fontSize:10, color:C.muted, textTransform:"uppercase", borderBottom:`1px solid ${C.border}` }}>{h}</th>)}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {destinationReportData.map((d,i)=>(
+                        <tr key={d.destination} style={{ borderBottom:`1px solid ${C.border}`, background:i%2===0?"transparent":C.surface+"44" }}>
+                          <td style={{ padding:"9px 10px", fontWeight:700 }}>{d.destination}</td>
+                          <td style={{ padding:"9px 10px", textAlign:"center", color:C.blue, fontWeight:700 }}>{d.programados}</td>
+                          <td style={{ padding:"9px 10px", textAlign:"center", color:C.green, fontWeight:700 }}>{d.cargados}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr style={{ background:C.surface, borderTop:`2px solid ${C.border}` }}>
+                        <td style={{ padding:"9px 10px", fontWeight:800 }}>TOTAL</td>
+                        <td style={{ padding:"9px 10px", textAlign:"center", fontWeight:800, color:C.blue }}>{destinationReportData.reduce((s,d)=>s+d.programados,0)}</td>
+                        <td style={{ padding:"9px 10px", textAlign:"center", fontWeight:800, color:C.green }}>{destinationReportData.reduce((s,d)=>s+d.cargados,0)}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+            </div>
+
             <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:"14px 8px", marginBottom:16 }}>
               <div style={{ fontWeight:700, fontSize:13, marginBottom:12, paddingLeft:8 }}>
                 {reportView==="weekly"?`Semana del ${weekDates[0]}`:`${MONTHS_ES[currentMonth]} ${currentYear}`}
