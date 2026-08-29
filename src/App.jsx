@@ -400,7 +400,7 @@ export default function App() {
       return;
     }
 
-    const rows = [["Fecha","Dia","Placa","Destino","Propietario","Estado","Hora Cargue","N° Cargue","Volumen GOV (Barriles)","Fecha Cargue","Hora Cargue","Fecha Descargue","Hora Descargue","Valor de Galón","Cantidad Galones","Costo del Viaje","Observaciones"]];
+    const rows = [["Fecha Cargue","Hora Cargue","Placa","Destino","Propietario","N° Cargue","Volumen GOV (Barriles)","Fecha Descargue","Hora Descargue","Valor de Galón","Cantidad Galones","Costo del Viaje","Observaciones"]];
     const filteredDates = Object.keys(schedules)
       .filter(date => date >= pdfFrom && date <= pdfTo)
       .sort();
@@ -411,17 +411,13 @@ export default function App() {
       (schedules[date] || []).forEach(v => {
         if (!v.loaded) return;
         rows.push([
-          date,
-          dayName,
-          v.plate,
+          v.fechaCargue || date || "",
+          v.horaCargue || "",
+          v.plate || "",
           v.destination || "Monterrey",
           v.owner || "",
-          "Cargado",
-          v.loadedTime || "",
           v.numeroCargue || "",
           v.volumenGOV || "",
-          v.fechaCargue || "",
-          v.horaCargue || "",
           v.fechaDescargue || "",
           v.horaDescargue || "",
           v.valorGalon || "",
@@ -819,12 +815,12 @@ export default function App() {
       ]
     : isAdmin2
       ? [
-          { id:"schedule", icon:"📅", label:"Programar" },
+          { id:"schedule", icon:"📅", label:"Programación" },
           { id:"reports", icon:"📊", label:"Informes" },
         ]
       : [
           { id:"fleet", icon:"🚗", label:"Flota" },
-          { id:"schedule", icon:"📅", label:"Programar" },
+          { id:"schedule", icon:"📅", label:"Programación" },
           { id:"reports", icon:"📊", label:"Informes" },
         ];
 
