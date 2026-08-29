@@ -53,7 +53,11 @@ export default function App() {
   const [pdfTo, setPdfTo] = useState(getTodayStr());
   const [pdfObs, setPdfObs] = useState("");
   const [generatingPdf, setGeneratingPdf] = useState(false);
-  const [loadModal, setLoadModal] = useState({ open:false, plate:"", numero:"", volumenGOV:"", ocrLoading:false, ocrError:"", ocrText:"" });
+  const [loadModal, setLoadModal] = useState({
+    open:false, plate:"", numero:"", volumenGOV:"",
+    fechaCargue:"", horaCargue:"", fechaDescargue:"", horaDescargue:"", valorGalon:"",
+    ocrLoading:false, ocrError:"", ocrText:""
+  });
   const VALID_ROLES = ["admin", "admin2", "viewer"];
   const storedRole = sessionStorage.getItem("canaven_role");
   const [authed, setAuthed] = useState(() => VALID_ROLES.includes(storedRole));
@@ -69,7 +73,7 @@ export default function App() {
   const isAdmin2 = role === "admin2";
   const isViewer = role === "viewer";
   const canConfirmLoad = isAdmin || isAdmin2;
-  const canDownloadCSV = isAdmin;
+  const canDownloadCSV = isAdmin || isAdmin2;
 
   const handleLogin = () => {
     if (pinInput === PIN_ADMIN) {
@@ -238,6 +242,11 @@ export default function App() {
       plate,
       numero: current.numeroCargue || "",
       volumenGOV: current.volumenGOV != null ? String(current.volumenGOV) : "",
+      fechaCargue: current.fechaCargue || selectedDate || "",
+      horaCargue: current.horaCargue || "",
+      fechaDescargue: current.fechaDescargue || "",
+      horaDescargue: current.horaDescargue || "",
+      valorGalon: current.valorGalon != null ? String(current.valorGalon) : "",
       ocrLoading:false,
       ocrError:"",
       ocrText:""
@@ -245,7 +254,7 @@ export default function App() {
   };
 
   const closeLoadModal = () => {
-    setLoadModal({ open:false, plate:"", numero:"", volumenGOV:"", ocrLoading:false, ocrError:"", ocrText:"" });
+    setLoadModal({ open:false, plate:"", numero:"", volumenGOV:"", fechaCargue:"", horaCargue:"", fechaDescargue:"", horaDescargue:"", valorGalon:"", ocrLoading:false, ocrError:"", ocrText:"" });
   };
 
   const loadTesseract = () => new Promise((resolve, reject) => {
@@ -317,15 +326,20 @@ export default function App() {
   };
 
   const confirmLoad = () => {
-    // N° de cargue, Volumen GOV e imagen son 100% opcionales.
-    // El cargue SIEMPRE puede confirmarse, incluso con los tres campos vacíos.
+    // Todos los datos son opcionales: confirmar nunca debe quedar bloqueado por campos vacíos.
     const numero = String(loadModal.numero || "").trim();
     const volumenRaw = String(loadModal.volumenGOV || "").trim().replace(/\s/g, "").replace(",", ".");
     const volumen = volumenRaw === "" ? null : Number(volumenRaw);
-
-    // Si el usuario escribió un volumen inválido, no bloqueamos el cargue:
-    // guardamos el valor como texto para no impedir la confirmación.
     const volumenGuardado = volumenRaw === "" ? null : (Number.isFinite(volumen) ? volumen : volumenRaw);
+
+    const valorRaw = String(loadModal.valorGalon || "").trim().replace(/\s/g, "").replace(",", ".");
+    const valorGalonNum = valorRaw === "" ? null : Number(valorRaw);
+    const valorGalonGuardado = valorRaw === "" ? null : (Number.isFinite(valorGalonNum) ? valorGalonNum : valorRaw);
+
+    const cantidadGalones = Number.isFinite(volumen) ? volumen * 42 : null;
+    const costoViaje = Number.isFinite(cantidadGalones) && Number.isFinite(valorGalonNum)
+      ? cantidadGalones * valorGalonNum
+      : null;
 
     const day = [...(schedules[selectedDate] || [])];
     const idx = day.findIndex(v => v.plate === loadModal.plate);
@@ -336,7 +350,14 @@ export default function App() {
       loaded:true,
       loadedTime:new Date().toLocaleTimeString("es-CO", { hour:"2-digit", minute:"2-digit" }),
       numeroCargue:numero || null,
-      volumenGOV:volumenGuardado
+      volumenGOV:volumenGuardado,
+      fechaCargue:loadModal.fechaCargue || null,
+      horaCargue:loadModal.horaCargue || null,
+      fechaDescargue:loadModal.fechaDescargue || null,
+      horaDescargue:loadModal.horaDescargue || null,
+      valorGalon:valorGalonGuardado,
+      cantidadGalones,
+      costoViaje
     };
     updateSchedules({ ...schedules, [selectedDate]: day });
     closeLoadModal();
@@ -369,7 +390,7 @@ export default function App() {
 
   // CSV Export for the selected date range
   const downloadCSV = () => {
-    if (!isAdmin) return;
+    if (!isAdmin && !isAdmin2) return;
     if (!pdfFrom || !pdfTo) {
       alert("Selecciona las fechas Desde y Hasta.");
       return;
@@ -379,7 +400,7 @@ export default function App() {
       return;
     }
 
-    const rows = [["Fecha","Dia","Placa","Destino","Propietario","Estado","Hora Cargue","N° Cargue","Volumen GOV (Barriles)","Observaciones"]];
+    const rows = [["Fecha","Dia","Placa","Destino","Propietario","Estado","Hora Cargue","N° Cargue","Volumen GOV (Barriles)","Fecha Cargue","Hora Cargue","Fecha Descargue","Hora Descargue","Valor de Galón","Cantidad Galones","Costo del Viaje","Observaciones"]];
     const filteredDates = Object.keys(schedules)
       .filter(date => date >= pdfFrom && date <= pdfTo)
       .sort();
@@ -399,6 +420,13 @@ export default function App() {
           v.loadedTime || "",
           v.numeroCargue || "",
           v.volumenGOV || "",
+          v.fechaCargue || "",
+          v.horaCargue || "",
+          v.fechaDescargue || "",
+          v.horaDescargue || "",
+          v.valorGalon || "",
+          v.cantidadGalones || "",
+          v.costoViaje || "",
           v.observaciones || ""
         ]);
       });
@@ -1187,7 +1215,7 @@ export default function App() {
             </div>
 
             {/* Export / preview options — solo Admin */}
-            {isAdmin && <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:"14px", marginBottom:16 }}>
+            {(isAdmin || isAdmin2) && <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:"14px", marginBottom:16 }}>
               <div style={{ fontSize:11, color:C.muted, marginBottom:10, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.07em" }}>
                 📥 Opciones de descarga
               </div>
@@ -1426,7 +1454,7 @@ export default function App() {
                 style={{ background:"transparent", border:"none", color:C.muted, fontSize:24, cursor:"pointer" }}>×</button>
             </div>
             <div style={{ color:C.muted, fontSize:12, marginBottom:16 }}>
-              Vehículo <strong style={{ color:C.yellowGreen }}>{loadModal.plate}</strong> · Puedes ingresar los datos manualmente, cargar una imagen desde tus fotos o simplemente confirmar la carga sin diligenciarlos.
+              Vehículo <strong style={{ color:C.yellowGreen }}>{loadModal.plate}</strong> · Todos los campos son opcionales. Puedes ingresar los datos manualmente, cargar una imagen desde tus fotos o simplemente confirmar la carga.
             </div>
 
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:12 }}>
@@ -1444,7 +1472,61 @@ export default function App() {
                   placeholder="Ej. 10.500"
                   style={{ width:"100%", boxSizing:"border-box", background:C.surface, border:`1px solid ${C.border}`, borderRadius:9, padding:"11px 12px", color:C.text, fontSize:14, outline:"none" }} />
               </div>
+              <div>
+                <div style={{ fontSize:10, color:C.muted, marginBottom:5, fontWeight:700 }}>FECHA CARGUE (opcional)</div>
+                <input type="date" value={loadModal.fechaCargue}
+                  onChange={e=>setLoadModal(prev=>({...prev,fechaCargue:e.target.value}))}
+                  style={{ width:"100%", boxSizing:"border-box", background:C.surface, border:`1px solid ${C.border}`, borderRadius:9, padding:"11px 12px", color:C.text, fontSize:13, outline:"none" }} />
+              </div>
+              <div>
+                <div style={{ fontSize:10, color:C.muted, marginBottom:5, fontWeight:700 }}>HORA DE CARGUE (opcional)</div>
+                <input type="time" value={loadModal.horaCargue}
+                  onChange={e=>setLoadModal(prev=>({...prev,horaCargue:e.target.value}))}
+                  style={{ width:"100%", boxSizing:"border-box", background:C.surface, border:`1px solid ${C.border}`, borderRadius:9, padding:"11px 12px", color:C.text, fontSize:13, outline:"none" }} />
+              </div>
+              <div>
+                <div style={{ fontSize:10, color:C.muted, marginBottom:5, fontWeight:700 }}>FECHA DESCARGUE (opcional)</div>
+                <input type="date" value={loadModal.fechaDescargue}
+                  onChange={e=>setLoadModal(prev=>({...prev,fechaDescargue:e.target.value}))}
+                  style={{ width:"100%", boxSizing:"border-box", background:C.surface, border:`1px solid ${C.border}`, borderRadius:9, padding:"11px 12px", color:C.text, fontSize:13, outline:"none" }} />
+              </div>
+              <div>
+                <div style={{ fontSize:10, color:C.muted, marginBottom:5, fontWeight:700 }}>HORA DESCARGUE (opcional)</div>
+                <input type="time" value={loadModal.horaDescargue}
+                  onChange={e=>setLoadModal(prev=>({...prev,horaDescargue:e.target.value}))}
+                  style={{ width:"100%", boxSizing:"border-box", background:C.surface, border:`1px solid ${C.border}`, borderRadius:9, padding:"11px 12px", color:C.text, fontSize:13, outline:"none" }} />
+              </div>
+              <div style={{ gridColumn:"1 / -1" }}>
+                <div style={{ fontSize:10, color:C.muted, marginBottom:5, fontWeight:700 }}>VALOR DE GALÓN (opcional)</div>
+                <input type="text" inputMode="decimal" value={loadModal.valorGalon}
+                  onChange={e=>setLoadModal(prev=>({...prev,valorGalon:e.target.value}))}
+                  placeholder="Ej. 12.500"
+                  style={{ width:"100%", boxSizing:"border-box", background:C.surface, border:`1px solid ${C.border}`, borderRadius:9, padding:"11px 12px", color:C.text, fontSize:14, outline:"none" }} />
+              </div>
             </div>
+
+            {(() => {
+              const vol = Number(String(loadModal.volumenGOV || "").trim().replace(/\s/g, "").replace(",", "."));
+              const galon = Number(String(loadModal.valorGalon || "").trim().replace(/\s/g, "").replace(",", "."));
+              const galones = Number.isFinite(vol) ? vol * 42 : null;
+              const costo = Number.isFinite(galones) && Number.isFinite(galon) ? galones * galon : null;
+              return (
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:12 }}>
+                  <div>
+                    <div style={{ fontSize:10, color:C.muted, marginBottom:5, fontWeight:800 }}>CANTIDAD GALONES</div>
+                    <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:9, padding:"11px 12px", color:C.yellowGreen, fontSize:14, fontWeight:900, minHeight:18 }}>
+                      {galones != null ? galones.toLocaleString("es-CO", { maximumFractionDigits:2 }) : "—"}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize:10, color:C.muted, marginBottom:5, fontWeight:800 }}>COSTO DEL VIAJE</div>
+                    <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:9, padding:"11px 12px", color:C.green, fontSize:14, fontWeight:900, minHeight:18 }}>
+                      {costo != null ? costo.toLocaleString("es-CO", { maximumFractionDigits:2 }) : "—"}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
 
             <label style={{
               display:"flex", alignItems:"center", justifyContent:"center", gap:8,
