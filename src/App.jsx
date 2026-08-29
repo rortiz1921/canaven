@@ -36,7 +36,7 @@ const CanavenLogo = ({ height = 46 }) => (
 );
 
 export default function App() {
-  const [tab, setTab] = useState("schedule");
+  const [tab, setTab] = useState(() => sessionStorage.getItem("canaven_role") === "viewer" ? "reports" : "schedule");
   const [vehicles, setVehicles] = useState(DEFAULT_VEHICLES.map(v => ({...v, destination:"Monterrey"})));
   const [destinations, setDestinations] = useState(["Monterrey"]);
   const [selectedDestination, setSelectedDestination] = useState("Monterrey");
@@ -54,23 +54,33 @@ export default function App() {
   const [pdfObs, setPdfObs] = useState("");
   const [generatingPdf, setGeneratingPdf] = useState(false);
   const [loadModal, setLoadModal] = useState({ open:false, plate:"", numero:"", volumenGOV:"", ocrLoading:false, ocrError:"", ocrText:"" });
-  const [authed, setAuthed] = useState(() => !!sessionStorage.getItem("canaven_role"));
-  const [role, setRole] = useState(() => sessionStorage.getItem("canaven_role") || "");
+  const VALID_ROLES = ["admin", "admin2", "viewer"];
+  const storedRole = sessionStorage.getItem("canaven_role");
+  const [authed, setAuthed] = useState(() => VALID_ROLES.includes(storedRole));
+  const [role, setRole] = useState(() => VALID_ROLES.includes(storedRole) ? storedRole : "");
   const [pinInput, setPinInput] = useState("");
   const [pinError, setPinError] = useState(false);
 
-  const PIN_ADMIN = "2025";    // Admin: puede editar todo
-  const PIN_VIEWER = "1111";   // Visitante: solo lectura
+  const PIN_ADMIN = "2025";    // Admin: control total
+  const PIN_VIEWER = "1111";   // Visitante: informes + CSV
+  const PIN_ADMIN2 = "2026";   // Admin2: confirmar cargues + informes + CSV
 
   const isAdmin = role === "admin";
+  const isAdmin2 = role === "admin2";
+  const isViewer = role === "viewer";
+  const canConfirmLoad = isAdmin || isAdmin2;
+  const canDownloadCSV = isAdmin;
 
   const handleLogin = () => {
     if (pinInput === PIN_ADMIN) {
       sessionStorage.setItem("canaven_role", "admin");
-      setRole("admin"); setAuthed(true); setPinError(false);
+      setRole("admin"); setAuthed(true); setPinError(false); setPinInput(""); setTab("schedule");
+    } else if (pinInput === PIN_ADMIN2) {
+      sessionStorage.setItem("canaven_role", "admin2");
+      setRole("admin2"); setAuthed(true); setPinError(false); setPinInput(""); setTab("schedule");
     } else if (pinInput === PIN_VIEWER) {
       sessionStorage.setItem("canaven_role", "viewer");
-      setRole("viewer"); setAuthed(true); setPinError(false);
+      setRole("viewer"); setAuthed(true); setPinError(false); setPinInput(""); setTab("reports");
     } else {
       setPinError(true); setPinInput("");
     }
@@ -193,7 +203,7 @@ export default function App() {
   const clearSelection = () => setSelectedPlates([]);
 
   const addSelectedToSchedule = () => {
-    if (!selectedPlates.length) return;
+    if (!isAdmin || !selectedPlates.length) return;
     const existing = schedules[selectedDate] || [];
     const toAdd = selectedPlates.filter(plate => !existing.find(e => e.plate === plate))
       .map(plate => ({ plate, destination: selectedDestination, loaded: false, loadedTime: null, observaciones: "" }));
@@ -201,15 +211,21 @@ export default function App() {
     setSelectedPlates([]);
   };
 
-  const removeFromSchedule = (plate) => updateSchedules({ ...schedules, [selectedDate]: (schedules[selectedDate] || []).filter(v => !(v.plate === plate && (v.destination || "Monterrey") === selectedDestination)) });
+  const removeFromSchedule = (plate) => {
+    if (!isAdmin) return;
+    updateSchedules({ ...schedules, [selectedDate]: (schedules[selectedDate] || []).filter(v => !(v.plate === plate && (v.destination || "Monterrey") === selectedDestination)) });
+  };
 
   const toggleLoaded = (plate) => {
+    if (!canConfirmLoad) return;
     const day = [...(schedules[selectedDate] || [])];
     const idx = day.findIndex(v => v.plate === plate && (v.destination || "Monterrey") === selectedDestination);
     if (idx === -1) return;
 
     // Si ya está cargado, conserva el comportamiento anterior: permite desmarcarlo.
     if (day[idx].loaded) {
+      // Admin conserva la posibilidad de desmarcar. Admin2 solo puede confirmar una vez.
+      if (!isAdmin) return;
       day[idx] = { ...day[idx], loaded:false, loadedTime:null };
       updateSchedules({ ...schedules, [selectedDate]: day });
       return;
@@ -327,6 +343,7 @@ export default function App() {
   };
 
   const updateObservaciones = (plate, value) => {
+    if (!isAdmin) return;
     const day = [...(schedules[selectedDate] || [])];
     const idx = day.findIndex(v => v.plate === plate && (v.destination || "Monterrey") === selectedDestination);
     if (idx === -1) return;
@@ -352,6 +369,7 @@ export default function App() {
 
   // CSV Export for the selected date range
   const downloadCSV = () => {
+    if (!isAdmin) return;
     if (!pdfFrom || !pdfTo) {
       alert("Selecciona las fechas Desde y Hasta.");
       return;
@@ -400,6 +418,7 @@ export default function App() {
 
   // PDF Report generation
   const generatePDF = async (autoPrint = true) => {
+    if (!isAdmin) return;
     setGeneratingPdf(true);
     try {
       // Collect data for date range
@@ -755,11 +774,31 @@ export default function App() {
     return result;
   }, [schedules]);
 
-  const TABS = [
-    { id:"fleet", icon:"🚗", label:"Flota" },
-    { id:"schedule", icon:"📅", label:"Programar" },
-    { id:"reports", icon:"📊", label:"Informes" },
-  ];
+  // Nunca permitir que un rol inválido conserve acceso por una sesión antigua.
+  useEffect(() => {
+    if (authed && !VALID_ROLES.includes(role)) {
+      sessionStorage.removeItem("canaven_role");
+      setAuthed(false);
+      setRole("");
+      setPinInput("");
+      setTab("schedule");
+    }
+  }, [authed, role]);
+
+  const TABS = isViewer
+    ? [
+        { id:"reports", icon:"📊", label:"Informes" },
+      ]
+    : isAdmin2
+      ? [
+          { id:"schedule", icon:"📅", label:"Programar" },
+          { id:"reports", icon:"📊", label:"Informes" },
+        ]
+      : [
+          { id:"fleet", icon:"🚗", label:"Flota" },
+          { id:"schedule", icon:"📅", label:"Programar" },
+          { id:"reports", icon:"📊", label:"Informes" },
+        ];
 
   if (!loaded) return (
     <div style={{ minHeight:"100vh", background:C.bg, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:16 }}>
@@ -773,47 +812,49 @@ export default function App() {
   if (!authed) return (
     <div style={{ minHeight:"100vh", background:C.bg, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"24px" }}>
       <style>{`@keyframes shake { 0%,100%{transform:translateX(0)} 20%,60%{transform:translateX(-8px)} 40%,80%{transform:translateX(8px)} } .shake{animation:shake 0.4s ease;}`}</style>
-      <div style={{ width:"100%", maxWidth:320 }}>
-        {/* Logo */}
-        <div style={{ display:"flex", justifyContent:"center", marginBottom:32 }}>
+      <div style={{ width:"100%", maxWidth:360 }}>
+        <div style={{ display:"flex", justifyContent:"center", marginBottom:28 }}>
           <CanavenLogo />
         </div>
-        {/* Card */}
-        <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:20, padding:"32px 24px", textAlign:"center" }}>
-          <div style={{ fontSize:44, marginBottom:12 }}>🔒</div>
-          <div style={{ fontSize:18, fontWeight:800, color:C.text, marginBottom:6 }}>Acceso Protegido</div>
-          <div style={{ fontSize:13, color:C.muted, marginBottom:8 }}>Ingresa tu PIN para continuar</div>
-          <div style={{ display:"flex", gap:8, justifyContent:"center", marginBottom:24 }}>
-            <span style={{ background:C.blue+"22", color:C.blue, border:`1px solid ${C.blue}44`, borderRadius:20, padding:"3px 10px", fontSize:11, fontWeight:700 }}>⚙️ Admin</span>
-            <span style={{ background:C.green+"22", color:C.green, border:`1px solid ${C.green}44`, borderRadius:20, padding:"3px 10px", fontSize:11, fontWeight:700 }}>👁️ Visitante</span>
-          </div>
-          {/* PIN dots display */}
-          <div style={{ display:"flex", justifyContent:"center", gap:12, marginBottom:24 }}>
-            {[0,1,2,3].map(i => (
-              <div key={i} style={{ width:14, height:14, borderRadius:"50%", background: pinInput.length > i ? C.blue : C.border, transition:"background 0.15s" }} />
-            ))}
-          </div>
-          {/* Keypad */}
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10, marginBottom:16 }}>
-            {["1","2","3","4","5","6","7","8","9","","0","⌫"].map((k, i) => (
-              <button key={i} onClick={() => {
-                if (k === "⌫") { setPinInput(p => p.slice(0,-1)); setPinError(false); }
-                else if (k === "") return;
-                else if (pinInput.length < 4) setPinInput(p => p + k);
-              }}
-                style={{ background: k===""?"transparent":pinError?C.red+"22":C.surface, border:`1px solid ${k===""?"transparent":pinError?C.red+"55":C.border}`, borderRadius:12, padding:"16px 0", fontSize:20, fontWeight:700, color: k==="⌫"?C.muted:C.text, cursor:k===""?"default":"pointer", transition:"all 0.15s" }}
-                disabled={k===""}>
-                {k}
+        <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:20, padding:"28px 24px", textAlign:"left" }}>
+          <div style={{ textAlign:"center", fontSize:42, marginBottom:8 }}>🔒</div>
+          <div style={{ textAlign:"center", fontSize:19, fontWeight:800, color:C.text, marginBottom:6 }}>Acceso Protegido</div>
+          <div style={{ textAlign:"center", fontSize:13, color:C.muted, marginBottom:22 }}>Selecciona el usuario e ingresa la contraseña</div>
+
+          <div style={{ fontSize:11, color:C.muted, marginBottom:7, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.07em" }}>Usuario</div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:7, marginBottom:16 }}>
+            {[
+              ["admin","⚙️ Admin"],
+              ["admin2","🛠️ Admin2"],
+              ["viewer","👁️ Visitante"]
+            ].map(([r,label]) => (
+              <button key={r} type="button" onClick={()=>{ setRole(r); setPinInput(""); setPinError(false); }}
+                style={{ background:role===r?C.blue+"22":C.surface, color:role===r?C.blue:C.text, border:`1px solid ${role===r?C.blue:C.border}`, borderRadius:9, padding:"10px 5px", fontSize:11, fontWeight:800, cursor:"pointer" }}>
+                {label}
               </button>
             ))}
           </div>
-          {pinError && <div style={{ color:C.red, fontSize:13, fontWeight:600, marginBottom:12 }}>PIN incorrecto. Intenta de nuevo.</div>}
-          <button onClick={handleLogin} disabled={pinInput.length < 4}
-            style={{ width:"100%", background:pinInput.length===4?C.blue:C.border, color:pinInput.length===4?"#fff":C.muted, border:"none", borderRadius:12, padding:"14px 0", fontSize:16, fontWeight:700, cursor:pinInput.length===4?"pointer":"not-allowed", transition:"all 0.2s" }}>
+
+          <div style={{ fontSize:11, color:C.muted, marginBottom:7, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.07em" }}>Contraseña</div>
+          <input
+            autoFocus
+            type="password"
+            inputMode="numeric"
+            maxLength={4}
+            value={pinInput}
+            onChange={e=>{ const v=e.target.value.replace(/\D/g,"").slice(0,4); setPinInput(v); setPinError(false); }}
+            onKeyDown={e=>{ if(e.key==="Enter" && pinInput.length===4) handleLogin(); }}
+            placeholder="••••"
+            style={{ width:"100%", boxSizing:"border-box", background:C.surface, border:`1px solid ${pinError?C.red:C.border}`, borderRadius:10, padding:"13px 14px", color:C.text, fontSize:22, letterSpacing:"0.35em", textAlign:"center", outline:"none", marginBottom:12 }}
+          />
+
+          {pinError && <div style={{ color:C.red, fontSize:12, fontWeight:600, marginBottom:12, textAlign:"center" }}>Usuario o contraseña incorrectos. Intenta de nuevo.</div>}
+          <button type="button" onClick={handleLogin} disabled={!role || pinInput.length !== 4}
+            style={{ width:"100%", background:(role && pinInput.length===4)?C.blue:C.border, color:(role && pinInput.length===4)?"#fff":C.muted, border:"none", borderRadius:12, padding:"14px 0", fontSize:16, fontWeight:700, cursor:(role && pinInput.length===4)?"pointer":"not-allowed", transition:"all 0.2s" }}>
             Ingresar
           </button>
         </div>
-        <div style={{ textAlign:"center", marginTop:20, fontSize:11, color:C.muted }}>
+        <div style={{ textAlign:"center", marginTop:18, fontSize:11, color:C.muted }}>
           CANAVEN Transportes de Colombia SAS
         </div>
       </div>
@@ -836,8 +877,8 @@ export default function App() {
           <CanavenLogo />
           <div style={{ textAlign:"right" }}>
             <div style={{ display:"flex", gap:6, justifyContent:"flex-end", alignItems:"center", marginBottom:2 }}>
-              <span style={{ fontSize:9, color: isAdmin ? C.blue : C.green, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.08em" }}>
-                {isAdmin ? "⚙️ Admin" : "👁️ Visitante"}
+              <span style={{ fontSize:9, color: isAdmin ? C.blue : isAdmin2 ? C.orange : C.green, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.08em" }}>
+                {isAdmin ? "⚙️ Admin" : isAdmin2 ? "🛠️ Admin2" : "👁️ Visitante"}
               </span>
               <button onClick={()=>{ sessionStorage.removeItem("canaven_role"); setAuthed(false); setRole(""); setPinInput(""); }}
                 style={{ background:"transparent", border:`1px solid ${C.border}`, borderRadius:4, color:C.muted, fontSize:9, cursor:"pointer", padding:"1px 5px" }}>Salir</button>
@@ -855,7 +896,7 @@ export default function App() {
       <div style={{ padding:"14px", maxWidth:600, margin:"0 auto" }}>
 
         {/* ===== FLEET ===== */}
-        {tab === "fleet" && (
+        {tab === "fleet" && isAdmin && (
           <div>
             <div style={{ marginBottom:14 }}>
               <div style={{ fontSize:16, fontWeight:700, marginBottom:2 }}>Gestión de Flota</div>
@@ -969,7 +1010,7 @@ export default function App() {
         )}
 
         {/* ===== SCHEDULE ===== */}
-        {tab === "schedule" && (
+        {tab === "schedule" && (isAdmin || isAdmin2) && (
           <div>
             <div style={{ marginBottom:12 }}>
               <div style={{ fontSize:16, fontWeight:700, marginBottom:2 }}>Programación Diaria</div>
@@ -985,7 +1026,7 @@ export default function App() {
                 </div>
               ))}
             </div>
-            {scheduleForDate.length > 0 && (
+            {scheduleForDate.length > 0 && isAdmin && (
               <div style={{ display:"flex", gap:8, marginBottom:12 }}>
                 <button onClick={copyMessage} className="tap"
                   style={{ flex:1, background:C.card, color:C.text, border:`1px solid ${C.border}`, borderRadius:10, padding:"11px 0", fontSize:13, fontWeight:700, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}>
@@ -998,9 +1039,14 @@ export default function App() {
                 </button>
               </div>
             )}
-            {!isAdmin && (
+            {isViewer && (
               <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:12, padding:"14px", marginBottom:12, textAlign:"center" }}>
-                <div style={{ fontSize:13, color:C.muted }}>👁️ Modo solo lectura — solo el administrador puede programar vehículos</div>
+                <div style={{ fontSize:13, color:C.muted }}>👁️ Modo solo lectura — solo puedes consultar la programación.</div>
+              </div>
+            )}
+            {isAdmin2 && (
+              <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:12, padding:"14px", marginBottom:12, textAlign:"center" }}>
+                <div style={{ fontSize:13, color:C.muted }}>🛠️ Modo operativo — solo puedes confirmar cargues de vehículos ya programados.</div>
               </div>
             )}
             {isAdmin && <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, marginBottom:12, overflow:"hidden" }}>
@@ -1058,9 +1104,9 @@ export default function App() {
                       ) : null}
                     </div>
                     <div style={{ display:"flex", gap:8, alignItems:"center" }}>
-                      {isAdmin ? (
-                        <button onClick={()=>toggleLoaded(v.plate)} className="tap"
-                          style={{ flex:1, background:v.loaded?C.green+"33":C.blue, color:v.loaded?C.green:"#fff", border:v.loaded?`1px solid ${C.green}`:"none", borderRadius:10, padding:"9px 10px", cursor:"pointer", fontWeight:700, fontSize:13 }}>
+                      {canConfirmLoad ? (
+                        <button onClick={()=>toggleLoaded(v.plate)} disabled={isAdmin2 && v.loaded} className="tap"
+                          style={{ flex:1, background:v.loaded?C.green+"33":C.blue, color:v.loaded?C.green:"#fff", border:v.loaded?`1px solid ${C.green}`:"none", borderRadius:10, padding:"9px 10px", cursor:(isAdmin2 && v.loaded)?"default":"pointer", fontWeight:700, fontSize:13, opacity:(isAdmin2 && v.loaded)?0.8:1 }}>
                           {v.loaded?`✓ Cargado · ${v.loadedTime||""}`:"Confirmar Carga"}
                         </button>
                       ) : (
@@ -1123,47 +1169,57 @@ export default function App() {
                 </div>
               )}
 
-              <div style={{ marginTop:14 }}>
-                <div style={{ fontSize:10, color:C.muted, marginBottom:5, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.07em" }}>
-                  📝 Observaciones del informe
+              {isAdmin && (
+                <div style={{ marginTop:14 }}>
+                  <div style={{ fontSize:10, color:C.muted, marginBottom:5, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.07em" }}>
+                    📝 Observaciones del informe
+                  </div>
+                  <textarea
+                    value={pdfObs}
+                    onChange={e=>setPdfObs(e.target.value)}
+                    placeholder="Escribe aquí todas las observaciones que quieras incluir en el informe. Puedes escribir varias líneas..."
+                    rows={5}
+                    style={{ width:"100%", boxSizing:"border-box", resize:"vertical", background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px", color:C.text, fontSize:12, outline:"none", lineHeight:1.5 }}
+                  />
+                  <div style={{ marginTop:4, fontSize:10, color:C.muted }}>Estas observaciones aparecerán en el punto 8 del informe y en el PDF.</div>
                 </div>
-                <textarea
-                  value={pdfObs}
-                  onChange={e=>setPdfObs(e.target.value)}
-                  placeholder="Escribe aquí todas las observaciones que quieras incluir en el informe. Puedes escribir varias líneas..."
-                  rows={5}
-                  style={{ width:"100%", boxSizing:"border-box", resize:"vertical", background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px", color:C.text, fontSize:12, outline:"none", lineHeight:1.5 }}
-                />
-                <div style={{ marginTop:4, fontSize:10, color:C.muted }}>Estas observaciones aparecerán en el punto 8 del informe y en el PDF.</div>
-              </div>
+              )}
             </div>
 
-            {/* Export / preview options */}
-            <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:"14px", marginBottom:16 }}>
+            {/* Export / preview options — solo Admin */}
+            {isAdmin && <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:"14px", marginBottom:16 }}>
               <div style={{ fontSize:11, color:C.muted, marginBottom:10, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.07em" }}>
                 📥 Opciones de descarga
               </div>
-              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8 }}>
-                <button onClick={downloadCSV} className="tap"
-                  style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:9, padding:"11px 6px", color:C.yellowGreen, cursor:"pointer", fontSize:12, fontWeight:800, display:"flex", flexDirection:"column", alignItems:"center", gap:4 }}>
-                  <span style={{ fontSize:18 }}>📊</span>
-                  <span>Descargar CSV</span>
-                </button>
-                <button onClick={()=>generatePDF(false)} disabled={generatingPdf || !pdfFrom || !pdfTo || pdfFrom > pdfTo} className="tap"
-                  style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:9, padding:"11px 6px", color:C.blue, cursor:generatingPdf?"not-allowed":"pointer", fontSize:12, fontWeight:800, display:"flex", flexDirection:"column", alignItems:"center", gap:4, opacity:(!pdfFrom || !pdfTo || pdfFrom > pdfTo)?0.5:1 }}>
-                  <span style={{ fontSize:18 }}>👁️</span>
-                  <span>Ver informe</span>
-                </button>
-                <button onClick={()=>generatePDF(true)} disabled={generatingPdf || !pdfFrom || !pdfTo || pdfFrom > pdfTo} className="tap"
-                  style={{ background:generatingPdf?C.border:"#dc2626", color:"#fff", border:"none", borderRadius:9, padding:"11px 6px", cursor:generatingPdf?"not-allowed":"pointer", fontSize:12, fontWeight:800, display:"flex", flexDirection:"column", alignItems:"center", gap:4, opacity:(!pdfFrom || !pdfTo || pdfFrom > pdfTo)?0.5:1 }}>
-                  <span style={{ fontSize:18 }}>📄</span>
-                  <span>{generatingPdf ? "Preparando..." : "Descargar PDF"}</span>
-                </button>
+              <div style={{ display:"grid", gridTemplateColumns:isAdmin?"1fr 1fr 1fr":"1fr", gap:8 }}>
+                {canDownloadCSV && (
+                  <button onClick={downloadCSV} className="tap"
+                    style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:9, padding:"11px 6px", color:C.yellowGreen, cursor:"pointer", fontSize:12, fontWeight:800, display:"flex", flexDirection:"column", alignItems:"center", gap:4 }}>
+                    <span style={{ fontSize:18 }}>📊</span>
+                    <span>Descargar CSV</span>
+                  </button>
+                )}
+                {isAdmin && (
+                  <>
+                    <button onClick={()=>generatePDF(false)} disabled={generatingPdf || !pdfFrom || !pdfTo || pdfFrom > pdfTo} className="tap"
+                      style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:9, padding:"11px 6px", color:C.blue, cursor:generatingPdf?"not-allowed":"pointer", fontSize:12, fontWeight:800, display:"flex", flexDirection:"column", alignItems:"center", gap:4, opacity:(!pdfFrom || !pdfTo || pdfFrom > pdfTo)?0.5:1 }}>
+                      <span style={{ fontSize:18 }}>👁️</span>
+                      <span>Ver informe</span>
+                    </button>
+                    <button onClick={()=>generatePDF(true)} disabled={generatingPdf || !pdfFrom || !pdfTo || pdfFrom > pdfTo} className="tap"
+                      style={{ background:generatingPdf?C.border:"#dc2626", color:"#fff", border:"none", borderRadius:9, padding:"11px 6px", cursor:generatingPdf?"not-allowed":"pointer", fontSize:12, fontWeight:800, display:"flex", flexDirection:"column", alignItems:"center", gap:4, opacity:(!pdfFrom || !pdfTo || pdfFrom > pdfTo)?0.5:1 }}>
+                      <span style={{ fontSize:18 }}>📄</span>
+                      <span>{generatingPdf ? "Preparando..." : "Descargar PDF"}</span>
+                    </button>
+                  </>
+                )}
               </div>
-              <div style={{ marginTop:8, color:C.muted, fontSize:10, textAlign:"center" }}>
-                “Ver informe” abre una vista previa; desde allí también puedes usar imprimir/guardar como PDF.
-              </div>
-            </div>
+              {isAdmin && (
+                <div style={{ marginTop:8, color:C.muted, fontSize:10, textAlign:"center" }}>
+                  “Ver informe” abre una vista previa; desde allí también puedes usar imprimir/guardar como PDF.
+                </div>
+              )}
+            </div>}
 
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:16 }}>
               {[
