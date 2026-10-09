@@ -111,36 +111,23 @@ export default function App() {
     return () => unsub();
   }, []);
 
-  // ── Safe Firestore saves ──
-  // Cada actualización modifica SOLO su campo. Esto evita que un cambio de
-  // vehículos pueda sobrescribir accidentalmente todo el historial de schedules.
-  const saveFieldToFirestore = async (field, value) => {
+  // ── Save to Firestore whenever data changes ──
+  const saveToFirestore = async (newVehicles, newSchedules, newDestinations = destinations) => {
     setSyncing(true);
     try {
       await setDoc(doc(db, "canaven", "data"), {
-        [field]: value,
+        vehicles: newVehicles,
+        schedules: newSchedules,
+        destinations: newDestinations,
         updatedAt: new Date().toISOString()
-      }, { merge: true });
-    } catch (e) {
-      console.error(e);
-      alert("No se pudo guardar en Firebase. Revisa tu conexión.");
-    } finally {
-      setSyncing(false);
-    }
+      });
+    } catch (e) { console.error(e); }
+    setSyncing(false);
   };
 
-  const updateVehicles = (newV) => {
-    setVehicles(newV);
-    saveFieldToFirestore("vehicles", newV);
-  };
-  const updateSchedules = (newS) => {
-    setSchedules(newS);
-    saveFieldToFirestore("schedules", newS);
-  };
-  const updateDestinations = (newD) => {
-    setDestinations(newD);
-    saveFieldToFirestore("destinations", newD);
-  };
+  const updateVehicles = (newV) => { setVehicles(newV); saveToFirestore(newV, schedules, destinations); };
+  const updateSchedules = (newS) => { setSchedules(newS); saveToFirestore(vehicles, newS, destinations); };
+  const updateDestinations = (newD) => { setDestinations(newD); saveToFirestore(vehicles, schedules, newD); };
 
   const addDestination = () => {
     const name = newDestination.trim();
@@ -401,175 +388,6 @@ export default function App() {
   const copyMessage = () => navigator.clipboard.writeText(buildWhatsAppText()).catch(() => {});
   const sendWhatsApp = () => window.open(`https://chat.whatsapp.com/LCkWONNBkq41X0mWV9feOF?text=${encodeURIComponent(buildWhatsAppText())}`, "_blank");
 
-  // ── CSV recovery/import ──
-  const normalizeHeader = (h) => String(h || "")
-    .normalize("NFD").replace(/[\\u0300-\\u036f]/g, "")
-    .toLowerCase().trim();
-
-  const parseCSVText = (text) => {
-    const clean = String(text || "").replace(/^\\uFEFF/, "");
-    const firstLine = clean.split(/\\r?\\n/)[0] || "";
-    const delimiter = (firstLine.split(";").length > firstLine.split(",").length) ? ";" : ",";
-    const rows = [];
-    let row = [], cell = "", quoted = false;
-
-    for (let i = 0; i < clean.length; i++) {
-      const ch = clean[i], next = clean[i + 1];
-      if (quoted) {
-        if (ch === '"' && next === '"') { cell += '"'; i++; }
-        else if (ch === '"') quoted = false;
-        else cell += ch;
-      } else {
-        if (ch === '"') quoted = true;
-        else if (ch === delimiter) { row.push(cell); cell = ""; }
-        else if (ch === "\\n") { row.push(cell); rows.push(row); row = []; cell = ""; }
-        else if (ch !== "\\r") cell += ch;
-      }
-    }
-    if (cell !== "" || row.length) { row.push(cell); rows.push(row); }
-    return rows;
-  };
-
-  const importCSV = (file) => {
-    if (!file) return;
-    if (!isAdmin) {
-      alert("Solo el administrador puede recuperar información desde un CSV.");
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      try {
-        const rows = parseCSVText(e.target.result);
-        if (rows.length < 2) throw new Error("El CSV no contiene registros.");
-
-        const headers = rows[0].map(normalizeHeader);
-        const idx = (names) => names.map(normalizeHeader).map(n => headers.indexOf(n)).find(i => i >= 0);
-        const iFecha = idx(["Fecha","fecha cargue"]);
-        const iPlaca = idx(["Placa"]);
-        const iDestino = idx(["Destino"]);
-        if (iFecha < 0 || iPlaca < 0) {
-          throw new Error("El CSV debe tener al menos las columnas Fecha y Placa.");
-        }
-
-        const get = (r, names) => {
-          const i = idx(names);
-          return i >= 0 ? String(r[i] ?? "").trim() : "";
-        };
-
-        const importedByDate = {};
-        let importedCount = 0;
-
-        rows.slice(1).forEach(r => {
-          if (!r || !r.length) return;
-          const fecha = String(r[iFecha] ?? "").trim();
-          const placa = String(r[iPlaca] ?? "").trim().toUpperCase();
-          if (!fecha || !placa || !/^\\d{4}-\\d{2}-\\d{2}$/.test(fecha)) return;
-
-          const destino = (iDestino >= 0 ? String(r[iDestino] ?? "").trim() : "") || "Monterrey";
-          const item = {
-            plate: placa,
-            destination: destino,
-            owner: get(r, ["Propietario"]),
-            loaded: true,
-            loadedTime: get(r, ["Hora Cargue"]),
-            numeroCargue: get(r, ["N° Cargue","N Cargue","Numero Cargue"]),
-            volumenGOV: get(r, ["Volumen GOV (Barriles)","Volumen GOV","Volumen"]),
-            fechaCargue: get(r, ["Fecha Cargue"]) || fecha,
-            horaCargue: get(r, ["Hora Cargue"]),
-            fechaDescargue: get(r, ["Fecha Descargue"]),
-            horaDescargue: get(r, ["Hora Descargue"]),
-            valorGalon: get(r, ["Valor de Galón","Valor de Galon"]),
-            cantidadGalones: get(r, ["Cantidad Galones"]),
-            costoViaje: get(r, ["Costo del Viaje"]),
-            observaciones: get(r, ["Observaciones"])
-          };
-
-          if (!importedByDate[fecha]) importedByDate[fecha] = [];
-          importedByDate[fecha].push(item);
-          importedCount++;
-        });
-
-        if (!importedCount) throw new Error("No encontré registros válidos con fecha YYYY-MM-DD y placa.");
-
-        const affectedDates = Object.keys(importedByDate);
-        const existingCount = affectedDates.reduce((n,d) => n + (schedules[d] || []).length, 0);
-
-        const ok = window.confirm(
-          `Se encontraron ${importedCount} registros en el CSV para ${affectedDates.length} fechas.\\n\\n` +
-          `Se conservarán todos los registros que ya existen, incluyendo los del 14 de septiembre en adelante.\\n` +
-          `Solo se agregarán/actualizarán coincidencias por fecha + placa + destino.\\n\\n` +
-          `¿Deseas continuar?`
-        );
-        if (!ok) return;
-
-        const merged = { ...schedules };
-        let added = 0, updated = 0;
-
-        affectedDates.forEach(date => {
-          const current = [...(merged[date] || [])];
-          importedByDate[date].forEach(item => {
-            const key = `${item.plate}|${item.destination}`;
-            const pos = current.findIndex(v =>
-              `${String(v.plate || "").toUpperCase()}|${v.destination || "Monterrey"}` === key
-            );
-            if (pos >= 0) {
-              current[pos] = { ...current[pos], ...item, loaded: true };
-              updated++;
-            } else {
-              current.push(item);
-              added++;
-            }
-          });
-          merged[date] = current;
-        });
-
-        setSchedules(merged);
-        await saveFieldToFirestore("schedules", merged);
-        alert(`Recuperación completada.\\n\\nAgregados: ${added}\\nActualizados: ${updated}\\n\\nLos datos posteriores al 13 de septiembre se conservaron.`);
-      } catch (err) {
-        console.error(err);
-        alert(`No se pudo importar el CSV: ${err.message || err}`);
-      } finally {
-        const el = document.getElementById("canaven-csv-import");
-        if (el) el.value = "";
-      }
-    };
-    reader.readAsText(file, "UTF-8");
-  };
-
-  const downloadFullBackupCSV = () => {
-    if (!isAdmin) return;
-    const oldFrom = pdfFrom, oldTo = pdfTo;
-    const dates = Object.keys(schedules).sort();
-    if (!dates.length) {
-      alert("No hay horarios para respaldar.");
-      return;
-    }
-    const rows = [["Fecha","Dia","Placa","Destino","Propietario","Estado","Hora Cargue","N° Cargue","Volumen GOV (Barriles)","Fecha Cargue","Hora Cargue","Fecha Descargue","Hora Descargue","Valor de Galón","Cantidad Galones","Costo del Viaje","Observaciones"]];
-    dates.forEach(date => {
-      const d = new Date(date + "T12:00:00");
-      (schedules[date] || []).forEach(v => {
-        rows.push([
-          date, DAYS_ES[d.getDay()], v.plate || "", v.destination || "Monterrey",
-          v.owner || "", v.loaded ? "Cargado" : "Pendiente", v.loadedTime || "",
-          v.numeroCargue || "", v.volumenGOV || "", v.fechaCargue || "",
-          v.horaCargue || "", v.fechaDescargue || "", v.horaDescargue || "",
-          v.valorGalon || "", v.cantidadGalones || "", v.costoViaje || "",
-          v.observaciones || ""
-        ]);
-      });
-    });
-    const csv = rows.map(r => r.map(c => `"${String(c ?? "").replace(/"/g, '""')}"`).join(",")).join("\\n");
-    const blob = new Blob(["\\uFEFF" + csv], { type:"text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `CANAVEN_RESPALDO_COMPLETO_${dates[0]}_a_${dates[dates.length-1]}.csv`;
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  };
-
   // CSV Export for the selected date range
   const downloadCSV = () => {
     if (!isAdmin && !isAdmin2) return;
@@ -721,6 +539,35 @@ export default function App() {
       const dailySVG = buildSVGBars(days.map(d => ({ val: d.cargados, label: d.label })), "#1a56c4");
       const monthlySVG = buildSVGBars(monthlyArr.map(m => ({ val: m.total, label: m.label })), "#b5c832");
 
+      // Galones cargados y costo total del flete, solo dentro del rango del PDF.
+      const fuelFreightMap = {};
+      Object.entries(schedules).forEach(([date, ds]) => {
+        if (date < pdfFrom || date > pdfTo) return;
+        const d = new Date(date + "T12:00:00");
+        const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+        if (!fuelFreightMap[key]) fuelFreightMap[key] = {
+          key, label: `${MONTHS_ES[d.getMonth()].slice(0,3)} ${d.getFullYear()}`, galones: 0, costoFlete: 0
+        };
+        ds.forEach(v => {
+          if (!v.loaded) return;
+          const gallons = Number(String(v.cantidadGalones ?? "").replace(/,/g, "."));
+          const freight = Number(String(v.costoViaje ?? "").replace(/,/g, "."));
+          if (v.cantidadGalones != null && v.cantidadGalones !== "" && Number.isFinite(gallons)) fuelFreightMap[key].galones += gallons;
+          if (v.costoViaje != null && v.costoViaje !== "" && Number.isFinite(freight)) fuelFreightMap[key].costoFlete += freight;
+        });
+      });
+      const fuelFreightMonthly = Object.values(fuelFreightMap).sort((a,b) => a.key.localeCompare(b.key));
+      const fuelGallonsSVG = buildSVGBars(fuelFreightMonthly.map(m => ({ val: Math.round(m.galones), label: m.label })), "#16803d");
+      const freightCostSVG = buildSVGBars(fuelFreightMonthly.map(m => ({ val: Math.round(m.costoFlete), label: m.label })), "#d97706");
+      const formatCOP = value => "$" + Math.round(value).toLocaleString("es-CO");
+      const fuelGallonsTotal = fuelFreightMonthly.reduce((sum,m) => sum + m.galones, 0);
+      const freightCostTotal = fuelFreightMonthly.reduce((sum,m) => sum + m.costoFlete, 0);
+      const fuelFreightRows = fuelFreightMonthly.map(m => `<tr>
+        <td style="border:1px solid #ccc;padding:6px 10px;font-weight:bold;">${m.label}</td>
+        <td style="border:1px solid #ccc;padding:6px 10px;text-align:right;">${m.galones.toLocaleString("es-CO",{maximumFractionDigits:2})}</td>
+        <td style="border:1px solid #ccc;padding:6px 10px;text-align:right;">${formatCOP(m.costoFlete)}</td>
+      </tr>`).join("");
+
       // Cargues realizados por vehículo para el rango del informe.
       // Se consolida por placa para evitar repetir vehículos.
       const pdfVehicleMap = {};
@@ -852,8 +699,25 @@ export default function App() {
         ${monthlySVG}
         <div style="text-align:center;margin-top:4px;font-size:9px;color:#555;">■ TOTAL CARGUES POR MES</div>
       </div>
+      <p class="section-title">6. GALONES CARGADOS Y COSTO TOTAL DEL FLETE POR MES</p>
+      <p style="font-size:10px;color:#555;">Período seleccionado: ${fromLabel} al ${toLabel}. Solo se incluyen viajes con cargue confirmado y valores registrados.</p>
+      <div class="chart-wrap">
+        <div class="chart-title">GALONES CARGADOS POR MES</div>
+        ${fuelGallonsSVG}
+      </div>
+      <div class="chart-wrap">
+        <div class="chart-title">COSTO TOTAL DEL FLETE POR MES (COP)</div>
+        ${freightCostSVG}
+      </div>
       <div class="table-section">
-        <p class="section-title">6. INDICADOR: DEL ${fromLabel.toUpperCase()} A ${toLabel.toUpperCase()}</p>
+        <table style="width:100%;">
+          <thead><tr><th>MES</th><th>GALONES CARGADOS</th><th>COSTO TOTAL FLETE (COP)</th></tr></thead>
+          <tbody>${fuelFreightRows || `<tr><td colspan="3" style="border:1px solid #ccc;padding:8px;text-align:center;">Sin datos de galones o flete en el período</td></tr>`}</tbody>
+          <tfoot><tr><td>TOTAL</td><td>${fuelGallonsTotal.toLocaleString("es-CO",{maximumFractionDigits:2})}</td><td>${formatCOP(freightCostTotal)}</td></tr></tfoot>
+        </table>
+      </div>
+      <div class="table-section">
+        <p class="section-title">7. INDICADOR: DEL ${fromLabel.toUpperCase()} A ${toLabel.toUpperCase()}</p>
         <table>
           <thead><tr><th>DIA</th><th>VIAJES</th></tr></thead>
           <tbody>${tableRows}</tbody>
@@ -861,7 +725,7 @@ export default function App() {
         </table>
       </div>
       <div class="table-section">
-        <p class="section-title">7. CARGUES REALIZADOS POR VEHÍCULO</p>
+        <p class="section-title">8. CARGUES REALIZADOS POR VEHÍCULO</p>
         <div class="chart-wrap" style="padding:12px;">
         <div class="chart-title">CANTIDAD DE CARGUES POR VEHÍCULO</div>
         <table style="width:100%;border-collapse:collapse;">
@@ -877,7 +741,7 @@ export default function App() {
         </div>
       </div>
       <div class="obs-section">
-        <p class="section-title">8. OBSERVACIONES:</p>
+        <p class="section-title">9. OBSERVACIONES:</p>
       ${(pdfObs || `Promedio de cargues por día: ${days.length > 0 ? (total/days.length).toFixed(1) : 0} viajes.`).split("\n").map(l => `<div class="obs-item">• ${l}</div>`).join("")}
       </div>
       <div class="footer">
@@ -935,6 +799,34 @@ export default function App() {
     programados: reportData.reduce((s,d) => s + d.programados, 0),
     cargados: reportData.reduce((s,d) => s + d.cargados, 0)
   }), [reportData]);
+
+  // Galones y costo de flete por mes, limitados exactamente al rango elegido en Informes.
+  const monthlyFuelFreightData = useMemo(() => {
+    const byMonth = {};
+    reportDates.forEach(date => {
+      const d = new Date(date + "T12:00:00");
+      const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+      if (!byMonth[key]) byMonth[key] = {
+        key,
+        name: `${MONTHS_ES[d.getMonth()].slice(0,3)} ${d.getFullYear()}`,
+        galones: 0,
+        costoFlete: 0
+      };
+      (schedules[date] || []).forEach(v => {
+        if (!v.loaded) return;
+        const gallons = Number(String(v.cantidadGalones ?? "").replace(/,/g, "."));
+        const freight = Number(String(v.costoViaje ?? "").replace(/,/g, "."));
+        if (v.cantidadGalones != null && v.cantidadGalones !== "" && Number.isFinite(gallons)) byMonth[key].galones += gallons;
+        if (v.costoViaje != null && v.costoViaje !== "" && Number.isFinite(freight)) byMonth[key].costoFlete += freight;
+      });
+    });
+    return Object.values(byMonth).sort((a,b) => a.key.localeCompare(b.key));
+  }, [schedules, reportDates]);
+
+  const monthlyFuelFreightTotals = useMemo(() => ({
+    galones: monthlyFuelFreightData.reduce((sum,m) => sum + m.galones, 0),
+    costoFlete: monthlyFuelFreightData.reduce((sum,m) => sum + m.costoFlete, 0)
+  }), [monthlyFuelFreightData]);
 
   // Viajes por destino para el rango seleccionado.
   const destinationReportData = useMemo(() => {
@@ -1411,27 +1303,6 @@ export default function App() {
                 )}
                 {isAdmin && (
                   <>
-                    <input
-                      id="canaven-csv-import"
-                      type="file"
-                      accept=".csv,text/csv"
-                      style={{ display:"none" }}
-                      onChange={e => importCSV(e.target.files?.[0])}
-                    />
-                    <button onClick={() => document.getElementById("canaven-csv-import")?.click()} className="tap"
-                      style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:9, padding:"11px 6px", color:C.orange, cursor:"pointer", fontSize:12, fontWeight:800, display:"flex", flexDirection:"column", alignItems:"center", gap:4 }}>
-                      <span style={{ fontSize:18 }}>📥</span>
-                      <span>Recuperar CSV</span>
-                    </button>
-                    <button onClick={downloadFullBackupCSV} className="tap"
-                      style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:9, padding:"11px 6px", color:C.green, cursor:"pointer", fontSize:12, fontWeight:800, display:"flex", flexDirection:"column", alignItems:"center", gap:4 }}>
-                      <span style={{ fontSize:18 }}>💾</span>
-                      <span>Respaldo completo</span>
-                    </button>
-                  </>
-                )}
-                {isAdmin && (
-                  <>
                     <button onClick={()=>generatePDF(false)} disabled={generatingPdf || !pdfFrom || !pdfTo || pdfFrom > pdfTo} className="tap"
                       style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:9, padding:"11px 6px", color:C.blue, cursor:generatingPdf?"not-allowed":"pointer", fontSize:12, fontWeight:800, display:"flex", flexDirection:"column", alignItems:"center", gap:4, opacity:(!pdfFrom || !pdfTo || pdfFrom > pdfTo)?0.5:1 }}>
                       <span style={{ fontSize:18 }}>👁️</span>
@@ -1491,6 +1362,67 @@ export default function App() {
                   </BarChart>
                 </ResponsiveContainer>
               )}
+            </div>
+
+            {/* Galones y costo de flete por mes en el período seleccionado */}
+            <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:"14px 8px", marginBottom:16 }}>
+              <div style={{ fontWeight:700, fontSize:13, marginBottom:4, paddingLeft:8 }}>
+                Galones cargados y costo total del flete por mes
+              </div>
+              <div style={{ fontSize:11, color:C.muted, marginBottom:12, paddingLeft:8 }}>
+                Según el período seleccionado ({pdfFrom} a {pdfTo}). Solo se suman viajes confirmados como cargados.
+              </div>
+              <div style={{ padding:"0 8px", display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:12 }}>
+                <div style={{ background:C.surface, borderRadius:10, padding:12 }}>
+                  <div style={{ fontSize:20, fontWeight:900, color:C.green }}>{monthlyFuelFreightTotals.galones.toLocaleString("es-CO",{maximumFractionDigits:2})}</div>
+                  <div style={{ fontSize:10, color:C.muted, textTransform:"uppercase" }}>Galones cargados</div>
+                </div>
+                <div style={{ background:C.surface, borderRadius:10, padding:12 }}>
+                  <div style={{ fontSize:17, fontWeight:900, color:"#d97706" }}>{monthlyFuelFreightTotals.costoFlete.toLocaleString("es-CO",{style:"currency",currency:"COP",maximumFractionDigits:0})}</div>
+                  <div style={{ fontSize:10, color:C.muted, textTransform:"uppercase" }}>Costo total del flete</div>
+                </div>
+              </div>
+              {monthlyFuelFreightData.length===0 ? (
+                <div style={{ textAlign:"center", padding:20, color:C.muted, fontSize:13 }}>Sin datos para este período</div>
+              ) : <>
+                <div style={{ fontWeight:700, fontSize:12, paddingLeft:8, marginBottom:6 }}>Galones cargados por mes</div>
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={monthlyFuelFreightData} margin={{top:8,right:8,left:0,bottom:8}}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+                    <XAxis dataKey="name" tick={{fill:C.muted,fontSize:10}} axisLine={{stroke:C.border}} tickLine={false}/>
+                    <YAxis tick={{fill:C.muted,fontSize:10}} axisLine={false} tickLine={false}/>
+                    <Tooltip formatter={value=>[Number(value).toLocaleString("es-CO",{maximumFractionDigits:2}),"Galones"]} contentStyle={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,fontSize:12,color:C.text}}/>
+                    <Bar dataKey="galones" name="Galones cargados" fill={C.green} radius={[4,4,0,0]}/>
+                  </BarChart>
+                </ResponsiveContainer>
+                <div style={{ fontWeight:700, fontSize:12, paddingLeft:8, margin:"12px 0 6px" }}>Costo total del flete por mes (COP)</div>
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={monthlyFuelFreightData} margin={{top:8,right:8,left:0,bottom:8}}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+                    <XAxis dataKey="name" tick={{fill:C.muted,fontSize:10}} axisLine={{stroke:C.border}} tickLine={false}/>
+                    <YAxis tick={{fill:C.muted,fontSize:10}} axisLine={false} tickLine={false} tickFormatter={value=>new Intl.NumberFormat("es-CO",{notation:"compact",maximumFractionDigits:1}).format(value)}/>
+                    <Tooltip formatter={value=>[Number(value).toLocaleString("es-CO",{style:"currency",currency:"COP",maximumFractionDigits:0}),"Costo flete"]} contentStyle={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,fontSize:12,color:C.text}}/>
+                    <Bar dataKey="costoFlete" name="Costo total del flete" fill="#d97706" radius={[4,4,0,0]}/>
+                  </BarChart>
+                </ResponsiveContainer>
+                <div style={{ overflowX:"auto", padding:"0 8px" }}>
+                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                    <thead><tr style={{background:C.surface}}>
+                      {["Mes","Galones cargados","Costo total flete (COP)"].map(h=><th key={h} style={{padding:"8px 6px",fontSize:10,color:C.muted,textAlign:"left",borderBottom:`1px solid ${C.border}`}}>{h}</th>)}
+                    </tr></thead>
+                    <tbody>{monthlyFuelFreightData.map((m,i)=><tr key={m.key} style={{borderBottom:`1px solid ${C.border}`,background:i%2===0?"transparent":C.surface+"44"}}>
+                      <td style={{padding:"8px 6px",fontWeight:700}}>{m.name}</td>
+                      <td style={{padding:"8px 6px",color:C.green}}>{m.galones.toLocaleString("es-CO",{maximumFractionDigits:2})}</td>
+                      <td style={{padding:"8px 6px",color:"#d97706"}}>{m.costoFlete.toLocaleString("es-CO",{style:"currency",currency:"COP",maximumFractionDigits:0})}</td>
+                    </tr>)}</tbody>
+                    <tfoot><tr style={{borderTop:`2px solid ${C.border}`}}>
+                      <td style={{padding:"8px 6px",fontWeight:800}}>TOTAL</td>
+                      <td style={{padding:"8px 6px",fontWeight:800,color:C.green}}>{monthlyFuelFreightTotals.galones.toLocaleString("es-CO",{maximumFractionDigits:2})}</td>
+                      <td style={{padding:"8px 6px",fontWeight:800,color:"#d97706"}}>{monthlyFuelFreightTotals.costoFlete.toLocaleString("es-CO",{style:"currency",currency:"COP",maximumFractionDigits:0})}</td>
+                    </tr></tfoot>
+                  </table>
+                </div>
+              </>}
             </div>
 
             {/* Viajes por destino */}
