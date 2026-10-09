@@ -412,12 +412,12 @@ export default function App() {
 
   // ── CSV recovery/import ──
   const normalizeHeader = (h) => String(h || "")
-    .normalize("NFD").replace(/[\\u0300-\\u036f]/g, "")
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
     .toLowerCase().trim();
 
   const parseCSVText = (text) => {
-    const clean = String(text || "").replace(/^\\uFEFF/, "");
-    const firstLine = clean.split(/\\r?\\n/)[0] || "";
+    const clean = String(text || "").replace(/^\uFEFF/, "");
+    const firstLine = clean.split(/\r?\n/)[0] || "";
     const delimiter = (firstLine.split(";").length > firstLine.split(",").length) ? ";" : ",";
     const rows = [];
     let row = [], cell = "", quoted = false;
@@ -431,12 +431,27 @@ export default function App() {
       } else {
         if (ch === '"') quoted = true;
         else if (ch === delimiter) { row.push(cell); cell = ""; }
-        else if (ch === "\\n") { row.push(cell); rows.push(row); row = []; cell = ""; }
-        else if (ch !== "\\r") cell += ch;
+        else if (ch === "\n") { row.push(cell); rows.push(row); row = []; cell = ""; }
+        else if (ch !== "\r") cell += ch;
       }
     }
     if (cell !== "" || row.length) { row.push(cell); rows.push(row); }
     return rows;
+  };
+
+  // Acepta fechas ISO (AAAA-MM-DD) y fechas habituales de Excel en español (D/M/AAAA).
+  const normalizeImportDate = (value) => {
+    const raw = String(value ?? "").trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+    const match = raw.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+    if (match) {
+      const day = Number(match[1]), month = Number(match[2]), year = Number(match[3]);
+      const date = new Date(year, month - 1, day);
+      if (date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day) {
+        return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+      }
+    }
+    return "";
   };
 
   const importCSV = (file) => {
@@ -471,9 +486,9 @@ export default function App() {
 
         rows.slice(1).forEach(r => {
           if (!r || !r.length) return;
-          const fecha = String(r[iFecha] ?? "").trim();
+          const fecha = normalizeImportDate(r[iFecha]);
           const placa = String(r[iPlaca] ?? "").trim().toUpperCase();
-          if (!fecha || !placa || !/^\\d{4}-\\d{2}-\\d{2}$/.test(fecha)) return;
+          if (!fecha || !placa) return;
 
           const destino = (iDestino >= 0 ? String(r[iDestino] ?? "").trim() : "") || "Monterrey";
           const item = {
