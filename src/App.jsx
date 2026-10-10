@@ -1047,6 +1047,32 @@ export default function App() {
     costo: monthlyFuelFreightData.reduce((sum, item) => sum + item.costo, 0)
   }), [monthlyFuelFreightData]);
 
+  // Las gráficas siempre muestran los últimos 12 meses, sin depender del filtro de fechas.
+  // Las tarjetas y la tabla continúan usando únicamente el período seleccionado.
+  const monthlyFuelFreightChartData = useMemo(() => {
+    const now = new Date();
+    const months = [];
+    const grouped = {};
+    for (let offset = 11; offset >= 0; offset--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - offset, 1, 12);
+      const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+      months.push({ key, mes: `${MONTHS_ES[d.getMonth()]} ${d.getFullYear()}`, galones: 0, costo: 0 });
+      grouped[key] = months[months.length - 1];
+    }
+    Object.entries(schedules || {}).forEach(([date, trips]) => {
+      const d = new Date(date + "T12:00:00");
+      if (Number.isNaN(d.getTime())) return;
+      const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+      if (!grouped[key]) return;
+      (trips || []).forEach(v => {
+        if (!v.loaded) return;
+        grouped[key].galones += parseReportNumber(v.cantidadGalones);
+        grouped[key].costo += parseReportNumber(v.costoViaje);
+      });
+    });
+    return months;
+  }, [schedules]);
+
   const formatCOP = value => new Intl.NumberFormat("es-CO", {
     style: "currency", currency: "COP", maximumFractionDigits: 0
   }).format(Number(value) || 0);
@@ -1608,11 +1634,11 @@ export default function App() {
               )}
             </div>
 
-            {/* Galones cargados y costo de flete por mes, limitados al período seleccionado */}
+            {/* Las gráficas muestran siempre los últimos 12 meses; tarjetas y tabla respetan el rango elegido */}
             <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:"14px", marginBottom:16 }}>
               <div style={{ fontWeight:700, fontSize:13, marginBottom:4 }}>Galones cargados y costo de flete por mes</div>
               <div style={{ fontSize:11, color:C.muted, marginBottom:12 }}>
-                Solo viajes marcados como cargados entre {pdfFrom || "—"} y {pdfTo || "—"}.
+                Gráficas: últimos 12 meses. Cuadros y tabla: período seleccionado ({pdfFrom || "—"} a {pdfTo || "—"}).
               </div>
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:14 }}>
                 <div style={{ background:C.surface, borderRadius:10, padding:12 }}>
@@ -1628,7 +1654,7 @@ export default function App() {
                   <div style={{ fontSize:10, color:C.muted, textTransform:"uppercase" }}>Costo total de flete</div>
                 </div>
               </div>
-              {monthlyFuelFreightData.length===0 ? (
+              {monthlyFuelFreightData.length===0 && monthlyFuelFreightChartData.length===0 ? (
                 <div style={{ textAlign:"center", padding:"22px", color:C.muted, fontSize:12 }}>
                   No hay galones cargados registrados en el período seleccionado.
                 </div>
@@ -1636,7 +1662,7 @@ export default function App() {
                 <>
                   <div style={{ fontSize:12, fontWeight:700, margin:"10px 0 4px 8px" }}>Galones cargados por mes</div>
                   <ResponsiveContainer width="100%" height={220}>
-                    <BarChart data={monthlyFuelFreightData} margin={{ top:8, right:8, left:0, bottom:8 }}>
+                    <BarChart data={monthlyFuelFreightChartData} margin={{ top:8, right:8, left:0, bottom:8 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
                       <XAxis dataKey="mes" tick={{ fill:C.muted, fontSize:10 }} axisLine={{ stroke:C.border }} tickLine={false} />
                       <YAxis tick={{ fill:C.muted, fontSize:10 }} axisLine={false} tickLine={false} />
@@ -1646,7 +1672,7 @@ export default function App() {
                   </ResponsiveContainer>
                   <div style={{ fontSize:12, fontWeight:700, margin:"12px 0 4px 8px" }}>Costo total de flete por mes (COP)</div>
                   <ResponsiveContainer width="100%" height={220}>
-                    <BarChart data={monthlyFuelFreightData} margin={{ top:8, right:8, left:0, bottom:8 }}>
+                    <BarChart data={monthlyFuelFreightChartData} margin={{ top:8, right:8, left:0, bottom:8 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
                       <XAxis dataKey="mes" tick={{ fill:C.muted, fontSize:10 }} axisLine={{ stroke:C.border }} tickLine={false} />
                       <YAxis tick={{ fill:C.muted, fontSize:9 }} axisLine={false} tickLine={false} tickFormatter={(value) => new Intl.NumberFormat("es-CO",{notation:"compact",maximumFractionDigits:1}).format(value)} />
