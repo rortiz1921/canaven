@@ -852,6 +852,24 @@ export default function App() {
       const destinationTotalProgramados = Object.values(destinationMap).reduce((s,v) => s + v.programados, 0);
       const destinationTotalCargados = Object.values(destinationMap).reduce((s,v) => s + v.cargados, 0);
 
+      // Indicadores ejecutivos: siempre corresponden exclusivamente al rango Desde/Hasta.
+      let periodGallons = 0;
+      let periodFreight = 0;
+      const activeDays = days.length;
+      Object.entries(schedules).forEach(([date, ds]) => {
+        const dt = new Date(date + "T12:00:00");
+        if (dt < from || dt > to) return;
+        (ds || []).forEach(v => {
+          if (!v.loaded) return;
+          periodGallons += parseReportNumber(v.cantidadGalones);
+          periodFreight += parseReportNumber(v.costoViaje);
+        });
+      });
+      const compliance = destinationTotalProgramados > 0
+        ? (destinationTotalCargados / destinationTotalProgramados * 100) : 0;
+      const averagePerDay = activeDays > 0 ? total / activeDays : 0;
+      const kpi = (value, label, detail) => `<div class="kpi"><div class="kpi-value">${value}</div><div class="kpi-label">${label}</div><div class="kpi-detail">${detail || ""}</div></div>`;
+
       const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
       <style>
         @page{size:auto;margin:0;}
@@ -863,7 +881,13 @@ export default function App() {
         h2{text-align:center;font-size:13px;font-weight:bold;letter-spacing:1px;margin:0 0 20px;}
         .section-title{font-weight:bold;font-size:11px;margin:16px 0 6px;}
         .item{margin:3px 0 3px 20px;font-size:10px;}
-        .chart-wrap{border:1px solid #ddd;border-radius:4px;padding:16px;margin:12px 0;break-inside:avoid;page-break-inside:avoid;}
+        .kpi-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin:12px 0 18px;break-inside:avoid;page-break-inside:avoid;}
+        .kpi{background:#f2f5fa;border-top:3px solid #1a56c4;border-radius:5px;padding:10px 9px;min-height:62px;}
+        .kpi-value{font-size:19px;font-weight:800;color:#17365d;white-space:nowrap;}
+        .kpi-label{font-size:9px;font-weight:700;color:#34445b;margin-top:4px;}
+        .kpi-detail{font-size:8px;color:#687789;margin-top:2px;}
+        .report-subtitle{font-size:10px;color:#657386;margin-top:-14px;margin-bottom:12px;}
+        .chart-wrap{border:1px solid #ddd;border-radius:6px;padding:12px;margin:10px 0;break-inside:avoid;page-break-inside:avoid;}
         .chart-title{text-align:center;font-weight:bold;font-size:12px;margin-bottom:12px;}
         .bars{display:flex;align-items:flex-end;justify-content:center;gap:2px;height:200px;border-bottom:2px solid #999;}
         table{border-collapse:collapse;margin:0 auto;break-inside:avoid;page-break-inside:avoid;}
@@ -896,35 +920,45 @@ export default function App() {
         </div>
         <div style="text-align:right;font-size:10px;color:#555;">Informe generado: ${reportDate}</div>
       </div>
-      <h2>INFORME OPERATIVO</h2>
-      <p><strong>1. FECHA:</strong> ${reportDate}</p>
-      <p class="section-title">2. ACTIVIDADES:</p>
-      <div class="item">1. Programación de vehículos diarios.</div>
-      <div class="item">2. Seguimiento de GPS para asegurar cantidad de vehículos programados</div>
-      <div class="item">3. Solicitud de documentos operativos a los propietarios</div>
-      <div class="item">4. Comunicación con personal de Canacol para asegurar la actividad y cumplir la programación.</div>
-      <div class="item">5. Reunión propietarios temas de facturación y pagos.</div>
-      <p class="section-title">3. INDICADORES: cargue de vehículos del ${fromLabel} al ${toLabel}</p>
+      <div style="display:flex;justify-content:space-between;align-items:flex-end;margin:12px 0 2px;">
+        <div><div style="font-size:22px;font-weight:900;color:#17365d;letter-spacing:.4px;">INFORME OPERATIVO</div>
+        <div class="report-subtitle">Transporte de producto — seguimiento de cargues</div></div>
+        <div style="text-align:right;font-size:9px;color:#657386;">PERÍODO ANALIZADO<br/><strong style="font-size:11px;color:#17365d;">${fromLabel} – ${toLabel}</strong></div>
+      </div>
+      <div class="kpi-grid">
+        ${kpi(total.toLocaleString("es-CO"), "VEHÍCULOS CARGADOS", `de ${destinationTotalProgramados.toLocaleString("es-CO")} programados`)}
+        ${kpi(`${compliance.toFixed(1).replace(".",",")} %`, "CUMPLIMIENTO", "cargados / programados")}
+        ${kpi(`${(periodGallons/1000000).toFixed(2).replace(".",",")} M`, "GALONES CARGADOS", "en el período filtrado")}
+        ${kpi(`$ ${(periodFreight/1000000).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ".")} M`, "COSTO TOTAL DE FLETE", "COP en el período filtrado")}
+        ${kpi(averagePerDay.toFixed(1).replace(".",","), "CARGUES POR DÍA", `${activeDays} días con actividad`)}
+      </div>
+      <p class="section-title">1. ACTIVIDADES DEL PERÍODO</p>
+      <div class="item">1. Programación diaria de vehículos.</div>
+      <div class="item">2. Seguimiento GPS para asegurar los vehículos programados.</div>
+      <div class="item">3. Solicitud de documentos operativos a los propietarios.</div>
+      <div class="item">4. Comunicación con personal de Canacol para cumplir la programación.</div>
+      <div class="item">5. Reunión con propietarios sobre facturación y pagos.</div>
+      <p class="section-title">2. CARGUES DIARIOS DEL PERÍODO</p>
       <div class="chart-wrap">
         <div class="chart-title">CARGUES POR DÍA</div>
         ${dailySVG}
         <div style="text-align:center;margin-top:4px;font-size:9px;color:#555;">■ CARGUES</div>
       </div>
       <div class="table-section">
-        <p class="section-title">4. CANTIDAD DE VIAJES POR DESTINO</p>
+        <p class="section-title">3. VIAJES POR DESTINO</p>
         <table style="width:100%;">
           <thead><tr><th>DESTINO</th><th>PROGRAMADOS</th><th>CARGADOS</th></tr></thead>
           <tbody>${destinationRows || `<tr><td colspan="3" style="border:1px solid #ccc;padding:8px;text-align:center;">Sin viajes registrados en el período</td></tr>`}</tbody>
           <tfoot><tr><td>TOTAL</td><td>${destinationTotalProgramados}</td><td>${destinationTotalCargados}</td></tr></tfoot>
         </table>
       </div>
-      <p class="section-title">5. COMPARATIVO MENSUAL DE CARGUES</p>
+      <p class="section-title">4. COMPARATIVO MENSUAL DE CARGUES</p>
       <div class="chart-wrap">
         <div class="chart-title">CARGUES POR MES</div>
         ${monthlySVG}
         <div style="text-align:center;margin-top:4px;font-size:9px;color:#555;">■ TOTAL CARGUES POR MES</div>
       </div>
-      <p class="section-title">6. GALONES CARGADOS Y COSTO DE FLETE — ÚLTIMOS SEIS MESES</p>
+      <p class="section-title">5. GALONES CARGADOS Y COSTO TOTAL DEL FLETE — ÚLTIMOS SEIS MESES</p>
       <div class="chart-wrap">
         <div class="chart-title">GALONES CARGADOS POR MES (SOLO VIAJES CARGADOS)</div>
         ${fuelGallonsSVG}
@@ -941,7 +975,7 @@ export default function App() {
         </table>
       </div>
       <div class="table-section">
-        <p class="section-title">7. INDICADOR: DEL ${fromLabel.toUpperCase()} A ${toLabel.toUpperCase()}</p>
+        <p class="section-title">6. DETALLE DIARIO DEL PERÍODO (${fromLabel.toUpperCase()} A ${toLabel.toUpperCase()})</p>
         <table>
           <thead><tr><th>DIA</th><th>VIAJES</th></tr></thead>
           <tbody>${tableRows}</tbody>
@@ -949,7 +983,7 @@ export default function App() {
         </table>
       </div>
       <div class="table-section">
-        <p class="section-title">8. CARGUES REALIZADOS POR VEHÍCULO</p>
+        <p class="section-title">7. CARGUES REALIZADOS POR VEHÍCULO</p>
         <div class="chart-wrap" style="padding:12px;">
         <div class="chart-title">CANTIDAD DE CARGUES POR VEHÍCULO</div>
         <table style="width:100%;border-collapse:collapse;">
@@ -965,7 +999,7 @@ export default function App() {
         </div>
       </div>
       <div class="obs-section">
-        <p class="section-title">9. OBSERVACIONES:</p>
+        <p class="section-title">8. OBSERVACIONES</p>
       ${(pdfObs || `Promedio de cargues por día: ${days.length > 0 ? (total/days.length).toFixed(1) : 0} viajes.`).split("\n").map(l => `<div class="obs-item">• ${l}</div>`).join("")}
       </div>
       <div class="footer">
