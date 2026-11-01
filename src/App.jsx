@@ -944,6 +944,10 @@ export default function App() {
         .footer{border-top:1px dashed #aaa;margin-top:32px;padding-top:12px;font-size:10px;break-inside:avoid;page-break-inside:avoid;}
         .sign-line{border-bottom:1px solid #333;width:140px;margin:24px 0 4px;}
         @media print{
+          body{padding:0 !important;}
+          .header{position:fixed;top:-20mm;left:0;right:0;height:15mm;padding:0 0 3mm;margin:0;border-bottom:2px solid #17365d;box-sizing:border-box;}
+          .header img{height:12mm !important;width:auto !important;}
+          .header div:last-child{font-size:10pt !important;color:#657386 !important;}
           .table-section,.chart-wrap,.footer{break-inside:avoid;page-break-inside:avoid;}
           .no-print{display:none !important;}
         }
@@ -959,7 +963,7 @@ export default function App() {
         <div>
           <img src="${CANAVEN_LOGO_SRC}" alt="CANAVEN - Transportes de Colombia SAS" style="height:52px;width:auto;object-fit:contain;display:block;" />
         </div>
-        <div style="text-align:right;font-size:10px;color:#555;">Informe generado: ${reportDate}</div>
+        <div style="text-align:right;font-size:10px;color:#657386;">Informe operativo · ${reportDate}</div>
       </div>
       <div style="display:flex;justify-content:space-between;align-items:flex-end;margin:12px 0 2px;">
         <div><div style="font-size:22px;font-weight:900;color:#17365d;letter-spacing:.4px;">INFORME OPERATIVO</div>
