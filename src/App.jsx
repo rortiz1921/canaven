@@ -682,7 +682,7 @@ export default function App() {
       const chartW = svgW - padL - padR;
       const chartH2 = svgH - padT - padB;
 
-      const buildSVGBars = (dataArr, color) => {
+      const buildSVGBars = (dataArr, color, valueFormatter = value => String(value)) => {
         if (dataArr.length === 0) return `<svg width="${svgW}" height="${svgH}"><text x="${svgW/2}" y="${svgH/2}" text-anchor="middle" fill="#999" font-size="13">Sin datos</text></svg>`;
         const maxV = Math.max(...dataArr.map(d => d.val), 1);
         const bW = Math.min(36, Math.floor(chartW / dataArr.length) - 4);
@@ -693,7 +693,7 @@ export default function App() {
         yLines.forEach(v => {
           const y = padT + chartH2 - Math.round((v/maxV)*chartH2);
           svg += `<line x1="${padL}" y1="${y}" x2="${svgW-padR}" y2="${y}" stroke="#ddd" stroke-width="1"/>`;
-          svg += `<text x="${padL-4}" y="${y+4}" text-anchor="end" font-size="9" fill="#999">${v}</text>`;
+          svg += `<text x="${padL-4}" y="${y+4}" text-anchor="end" font-size="8" fill="#999">${valueFormatter(v)}</text>`;
         });
         // X axis
         svg += `<line x1="${padL}" y1="${padT+chartH2}" x2="${svgW-padR}" y2="${padT+chartH2}" stroke="#999" stroke-width="1.5"/>`;
@@ -703,7 +703,7 @@ export default function App() {
           const bH = Math.max(2, Math.round((d.val / maxV) * chartH2));
           const y = padT + chartH2 - bH;
           svg += `<rect x="${x}" y="${y}" width="${bW}" height="${bH}" fill="${color}" rx="2"/>`;
-          svg += `<text x="${x + bW/2}" y="${y - 3}" text-anchor="middle" font-size="9" font-weight="bold" fill="#333">${d.val}</text>`;
+          svg += `<text x="${x + bW/2}" y="${y - 3}" text-anchor="middle" font-size="8" font-weight="bold" fill="#333">${valueFormatter(d.val)}</text>`;
           // Label rotated
           const lx = x + bW/2; const ly = padT + chartH2 + 8;
           svg += `<text transform="rotate(-40,${lx},${ly})" x="${lx}" y="${ly}" text-anchor="end" font-size="7.5" fill="#666">${d.label}</text>`;
@@ -782,7 +782,8 @@ export default function App() {
       );
       const fuelCostSVG = buildSVGBars(
         fuelFreightArr.map(m => ({ val: Math.round(m.costo), label: m.label })),
-        "#ea580c"
+        "#ea580c",
+        value => "$" + Math.round(value).toLocaleString("es-CO")
       );
       const fuelFreightTotalGallons = fuelFreightArr.reduce((sum, m) => sum + m.galones, 0);
       const fuelFreightTotalCost = fuelFreightArr.reduce((sum, m) => sum + m.costo, 0);
@@ -829,6 +830,28 @@ export default function App() {
         `<tr><td style="border:1px solid #ccc;padding:6px 12px;text-align:center;">${day.label}</td>
          <td style="border:1px solid #ccc;padding:6px 12px;text-align:center;font-weight:bold;">${day.cargados}</td></tr>`
       ).join("");
+
+      // Calendario diario anual: desde enero hasta el mes final del período del informe.
+      // Cada celda muestra los vehículos cargados y usa intensidad de color según cantidad.
+      const calendarEnd = new Date(to.getFullYear(), to.getMonth(), 1, 12);
+      const calendarMonths = [];
+      for (let month = 0; month <= calendarEnd.getMonth(); month++) {
+        const firstDay = new Date(to.getFullYear(), month, 1, 12);
+        const daysInMonth = new Date(to.getFullYear(), month + 1, 0).getDate();
+        const cells = [];
+        let monthTotal = 0;
+        for (let day = 1; day <= 31; day++) {
+          if (day > daysInMonth) { cells.push(`<td class="cal-empty"></td>`); continue; }
+          const dateKey = `${to.getFullYear()}-${String(month + 1).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
+          const count = (schedules[dateKey] || []).filter(v => v.loaded).length;
+          monthTotal += count;
+          const shade = count === 0 ? "cal-zero" : count <= 2 ? "cal-1" : count === 3 ? "cal-3" : count === 4 ? "cal-4" : count === 5 ? "cal-5" : count === 6 ? "cal-6" : count <= 8 ? "cal-7" : "cal-9";
+          cells.push(`<td class="cal-cell ${shade}">${count || ""}</td>`);
+        }
+        calendarMonths.push(`<tr><th class="cal-month">${MONTHS_ES[month].slice(0,3)}</th>${cells.join("")}<th class="cal-total">${monthTotal.toLocaleString("es-CO")}</th></tr>`);
+      }
+      const calendarDaysHeader = Array.from({length:31}, (_,i) => `<th class="cal-day">${i+1}</th>`).join("");
+      const calendarHTML = `<div class="calendar-wrap"><table class="calendar-table"><thead><tr><th></th>${calendarDaysHeader}<th></th></tr></thead><tbody>${calendarMonths.join("")}</tbody></table><div class="calendar-legend"><span><i class="cal-1"></i>1–2</span><span><i class="cal-3"></i>3</span><span><i class="cal-4"></i>4</span><span><i class="cal-5"></i>5</span><span><i class="cal-6"></i>6</span><span><i class="cal-7"></i>7–8</span><span><i class="cal-9"></i>9–10</span><span><i class="cal-zero"></i>Sin cargue</span></div></div>`;
 
       // Cantidad de viajes por destino para el rango del informe
       const destinationMap = {};
@@ -887,6 +910,24 @@ export default function App() {
         .kpi-label{font-size:9px;font-weight:700;color:#34445b;margin-top:4px;}
         .kpi-detail{font-size:8px;color:#687789;margin-top:2px;}
         .report-subtitle{font-size:10px;color:#657386;margin-top:-14px;margin-bottom:12px;}
+        .calendar-wrap{border:1px solid #d9e1ec;border-radius:7px;padding:10px 12px;margin:8px 0 14px;break-inside:avoid;page-break-inside:avoid;}
+        .calendar-table{width:100%;table-layout:fixed;border-collapse:separate;border-spacing:2px;font-size:8px;}
+        .calendar-table th{background:transparent;color:#64748b;padding:3px 0;font-size:8px;}
+        .calendar-table .cal-month{width:34px;text-align:left;font-size:9px;color:#243b5a;font-weight:800;}
+        .calendar-table .cal-day{font-weight:500;}
+        .calendar-table .cal-total{width:30px;color:#17365d;font-size:9px;font-weight:800;}
+        .calendar-table td{height:18px;text-align:center;border-radius:3px;padding:0;font-size:8px;font-weight:700;}
+        .calendar-table .cal-empty{background:transparent;}
+        .cal-zero{background:#f1f3f6;color:#aab3bf;border:1px solid #e1e5eb;}
+        .cal-1{background:#e7f0fb;color:#24415f;} .cal-3{background:#c9dcf5;color:#24415f;}
+        .cal-4{background:#9fc2ed;color:#17365d;} .cal-5{background:#6ea0df;color:#fff;}
+        .cal-6{background:#3d7fd0;color:#fff;} .cal-7{background:#205ca8;color:#fff;}
+        .cal-9{background:#102f5b;color:#fff;}
+        .calendar-legend{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:9px 2px 0;color:#64748b;font-size:9px;}
+        .calendar-legend span{display:flex;align-items:center;gap:4px;} .calendar-legend i{display:inline-block;width:13px;height:10px;border-radius:2px;}
+        .fuel-charts{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:stretch;}
+        .fuel-charts .chart-wrap{min-width:0;margin:8px 0;padding:8px;}
+        .fuel-charts svg{width:100%;height:auto;}
         .chart-wrap{border:1px solid #ddd;border-radius:6px;padding:12px;margin:10px 0;break-inside:avoid;page-break-inside:avoid;}
         .chart-title{text-align:center;font-weight:bold;font-size:12px;margin-bottom:12px;}
         .bars{display:flex;align-items:flex-end;justify-content:center;gap:2px;height:200px;border-bottom:2px solid #999;}
@@ -959,13 +1000,15 @@ export default function App() {
         <div style="text-align:center;margin-top:4px;font-size:9px;color:#555;">■ TOTAL CARGUES POR MES</div>
       </div>
       <p class="section-title">5. GALONES CARGADOS Y COSTO TOTAL DEL FLETE — ÚLTIMOS SEIS MESES</p>
-      <div class="chart-wrap">
-        <div class="chart-title">GALONES CARGADOS POR MES (SOLO VIAJES CARGADOS)</div>
-        ${fuelGallonsSVG}
-      </div>
-      <div class="chart-wrap">
-        <div class="chart-title">COSTO TOTAL DE FLETE POR MES (COP)</div>
-        ${fuelCostSVG}
+      <div class="fuel-charts">
+        <div class="chart-wrap">
+          <div class="chart-title">GALONES CARGADOS POR MES</div>
+          ${fuelGallonsSVG}
+        </div>
+        <div class="chart-wrap">
+          <div class="chart-title">COSTO TOTAL DE FLETE POR MES (COP)</div>
+          ${fuelCostSVG}
+        </div>
       </div>
       <div class="table-section">
         <table style="width:100%;">
@@ -975,12 +1018,9 @@ export default function App() {
         </table>
       </div>
       <div class="table-section">
-        <p class="section-title">6. DETALLE DIARIO DEL PERÍODO (${fromLabel.toUpperCase()} A ${toLabel.toUpperCase()})</p>
-        <table>
-          <thead><tr><th>DIA</th><th>VIAJES</th></tr></thead>
-          <tbody>${tableRows}</tbody>
-          <tfoot><tr><td>TOTAL</td><td>${total}</td></tr></tfoot>
-        </table>
+        <p class="section-title">6. DETALLE DIARIO DE CARGUES — ${to.getFullYear()} (ENERO A ${MONTHS_ES[to.getMonth()].toUpperCase()})</p>
+        <div style="font-size:9px;color:#64748b;margin-bottom:6px;">Cada celda muestra los vehículos cargados en ese día. El color representa la cantidad de cargues; al final de cada fila aparece el total mensual.</div>
+        ${calendarHTML}
       </div>
       <div class="table-section">
         <p class="section-title">7. CARGUES REALIZADOS POR VEHÍCULO</p>
