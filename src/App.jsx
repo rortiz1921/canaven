@@ -895,7 +895,7 @@ export default function App() {
 
       const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
       <style>
-        @page{size:letter portrait;margin:25mm 14mm 18mm;}
+        @page{size:letter portrait;margin:30mm 14mm 18mm;}
         body{font-family:Arial,sans-serif;margin:0;padding:20px 30px 30px;color:#222;font-size:11px;}
         /* Membrete fijo: Chrome lo repite automáticamente en cada página impresa. */
         .header{position:relative;left:auto;right:auto;top:auto;height:72px;display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #1a56c4;padding-bottom:8px;background:#fff;z-index:1000;}
@@ -944,9 +944,11 @@ export default function App() {
         .footer{border-top:1px dashed #aaa;margin-top:32px;padding-top:12px;font-size:10px;break-inside:avoid;page-break-inside:avoid;}
         .sign-line{border-bottom:1px solid #333;width:140px;margin:24px 0 4px;}
         @media print{
-          @page{size:letter portrait;margin:25mm 14mm 18mm;}
+          @page{size:letter portrait;margin:30mm 14mm 18mm;}
           html,body{width:100%;margin:0 !important;padding:0 !important;}
-          .header{position:fixed;top:-20mm;left:14mm;right:14mm;height:15mm;padding:0 0 3mm;margin:0;border-bottom:2px solid #17365d;box-sizing:border-box;}
+          /* Encabezado anclado al borde superior de cada hoja; el margen superior
+             de @page reserva el espacio para que el contenido nunca lo invada. */
+          .header{position:fixed;top:5mm;left:14mm;right:14mm;height:15mm;padding:0 0 3mm;margin:0;border-bottom:2px solid #17365d;box-sizing:border-box;background:#fff;z-index:1000;}
           .header img{height:12mm !important;width:auto !important;}
           .header div:last-child{font-size:10pt !important;color:#657386 !important;}
           .table-section,.chart-wrap,.footer{break-inside:avoid;page-break-inside:avoid;}
@@ -966,9 +968,11 @@ export default function App() {
         </div>
         <div style="text-align:right;font-size:10px;color:#657386;">Informe operativo · ${reportDate}</div>
       </div>
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin:12px 0 2px;gap:18px;">
-        <div><div style="font-size:22px;font-weight:900;color:#17365d;letter-spacing:.4px;">INFORME OPERATIVO</div>
-        <div class="report-subtitle">Transporte de producto — seguimiento de cargues</div></div>
+      <div class="report-heading" style="display:flex;justify-content:space-between;align-items:flex-start;margin:0 0 16px;gap:18px;position:relative;clear:both;">
+        <div style="min-width:0;flex:1;">
+          <div style="font-size:21px;line-height:1.2;font-weight:900;color:#17365d;letter-spacing:.4px;margin:0;">INFORME OPERATIVO</div>
+          <div class="report-subtitle" style="display:block;line-height:1.45;margin:5px 0 0;">Transporte de producto — seguimiento de cargues</div>
+        </div>
         <div style="text-align:right;font-size:9px;color:#657386;">PERÍODO ANALIZADO<br/><strong style="font-size:11px;color:#17365d;">${fromLabel} – ${toLabel}</strong></div>
       </div>
       <div class="kpi-grid">
