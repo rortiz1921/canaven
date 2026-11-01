@@ -745,21 +745,28 @@ export default function App() {
       const dailySVG = buildSVGBars(days.map(d => ({ val: d.cargados, label: d.label })), "#1a56c4");
       const monthlySVG = buildSVGBars(monthlyArr.map(m => ({ val: m.total, label: m.label })), "#b5c832");
 
-      // Galones cargados y costo de flete, únicamente dentro del rango elegido.
+      // Comparativo de galones y costo de flete de los últimos seis meses
+      // tomando como referencia el último mes del período seleccionado en el PDF.
       const fuelFreightMap = {};
+      const pdfEndDate = new Date((pdfTo || new Date().toISOString().slice(0,10)) + "T12:00:00");
+      const sixMonthStart = new Date(pdfEndDate.getFullYear(), pdfEndDate.getMonth() - 5, 1, 12);
+      for (let i = 0; i < 6; i++) {
+        const monthDate = new Date(sixMonthStart.getFullYear(), sixMonthStart.getMonth() + i, 1, 12);
+        const key = `${monthDate.getFullYear()}-${String(monthDate.getMonth()+1).padStart(2,"0")}`;
+        fuelFreightMap[key] = {
+          label: MONTHS_ES[monthDate.getMonth()].slice(0,3) + " " + monthDate.getFullYear(),
+          galones: 0,
+          costo: 0
+        };
+      }
+      const fuelStartKey = `${sixMonthStart.getFullYear()}-${String(sixMonthStart.getMonth()+1).padStart(2,"0")}`;
+      const fuelEndKey = `${pdfEndDate.getFullYear()}-${String(pdfEndDate.getMonth()+1).padStart(2,"0")}`;
       Object.entries(schedules).forEach(([date, ds]) => {
-        if (date < pdfFrom || date > pdfTo) return;
         const d = new Date(date + "T12:00:00");
+        const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+        if (key < fuelStartKey || key > fuelEndKey) return;
         ds.forEach(v => {
           if (!v.loaded) return;
-          const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
-          if (!fuelFreightMap[key]) {
-            fuelFreightMap[key] = {
-              label: MONTHS_ES[d.getMonth()].slice(0,3) + " " + d.getFullYear(),
-              galones: 0,
-              costo: 0
-            };
-          }
           const galones = parseReportNumber(v.cantidadGalones);
           const costo = parseReportNumber(v.costoViaje);
           fuelFreightMap[key].galones += galones;
@@ -917,7 +924,7 @@ export default function App() {
         ${monthlySVG}
         <div style="text-align:center;margin-top:4px;font-size:9px;color:#555;">■ TOTAL CARGUES POR MES</div>
       </div>
-      <p class="section-title">6. GALONES CARGADOS Y COSTO DE FLETE POR MES</p>
+      <p class="section-title">6. GALONES CARGADOS Y COSTO DE FLETE — ÚLTIMOS SEIS MESES</p>
       <div class="chart-wrap">
         <div class="chart-title">GALONES CARGADOS POR MES (SOLO VIAJES CARGADOS)</div>
         ${fuelGallonsSVG}
@@ -928,7 +935,7 @@ export default function App() {
       </div>
       <div class="table-section">
         <table style="width:100%;">
-          <thead><tr><th>MES DEL PERÍODO</th><th>GALONES CARGADOS</th><th>COSTO FLETE (COP)</th></tr></thead>
+          <thead><tr><th>MES</th><th>GALONES CARGADOS</th><th>COSTO FLETE (COP)</th></tr></thead>
           <tbody>${fuelFreightRows || `<tr><td colspan="3" style="border:1px solid #ccc;padding:8px;text-align:center;">Sin galones cargados registrados en el período</td></tr>`}</tbody>
           <tfoot><tr><td>TOTAL DEL PERÍODO</td><td>${fuelFreightTotalGallons.toLocaleString("es-CO",{maximumFractionDigits:2})}</td><td>${copPDF(fuelFreightTotalCost)}</td></tr></tfoot>
         </table>
