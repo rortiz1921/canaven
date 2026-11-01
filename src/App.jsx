@@ -975,6 +975,38 @@ export default function App() {
           .header div:last-child{font-size:10pt !important;color:#657386 !important;}
           .table-section,.chart-wrap,.footer{break-inside:avoid;page-break-inside:avoid;}
           .fuel-freight-table{margin-top:6mm !important;padding-top:0 !important;}
+          /* Forzar la impresión de la escala cromática del calendario.
+             Chrome puede omitir fondos en PDF si no se solicita reproducción exacta. */
+          .calendar-wrap,.calendar-table,.calendar-table td,.calendar-legend,
+          .calendar-legend i{
+            -webkit-print-color-adjust:exact !important;
+            print-color-adjust:exact !important;
+          }
+          .calendar-table td.cal-zero,.calendar-legend i.cal-zero{
+            background:#f1f3f6 !important;background-color:#f1f3f6 !important;
+            color:#aab3bf !important;border:1px solid #e1e5eb !important;
+          }
+          .calendar-table td.cal-1,.calendar-legend i.cal-1{
+            background:#e7f0fb !important;background-color:#e7f0fb !important;color:#24415f !important;
+          }
+          .calendar-table td.cal-3,.calendar-legend i.cal-3{
+            background:#c9dcf5 !important;background-color:#c9dcf5 !important;color:#24415f !important;
+          }
+          .calendar-table td.cal-4,.calendar-legend i.cal-4{
+            background:#9fc2ed !important;background-color:#9fc2ed !important;color:#17365d !important;
+          }
+          .calendar-table td.cal-5,.calendar-legend i.cal-5{
+            background:#6ea0df !important;background-color:#6ea0df !important;color:#fff !important;
+          }
+          .calendar-table td.cal-6,.calendar-legend i.cal-6{
+            background:#3d7fd0 !important;background-color:#3d7fd0 !important;color:#fff !important;
+          }
+          .calendar-table td.cal-7,.calendar-legend i.cal-7{
+            background:#205ca8 !important;background-color:#205ca8 !important;color:#fff !important;
+          }
+          .calendar-table td.cal-9,.calendar-legend i.cal-9{
+            background:#102f5b !important;background-color:#102f5b !important;color:#fff !important;
+          }
           .no-print{display:none !important;}
         }
         .report-actions{position:fixed;top:12px;right:18px;z-index:9999;display:flex;gap:8px;}
