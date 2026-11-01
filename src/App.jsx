@@ -967,6 +967,9 @@ export default function App() {
           .header img{height:12mm !important;width:auto !important;}
           .header div:last-child{font-size:10pt !important;color:#657386 !important;}
           .table-section,.chart-wrap,.footer{break-inside:avoid;page-break-inside:avoid;}
+          /* Esta tabla puede iniciar una página nueva después de las gráficas.
+             Separa su contenido del membrete repetido en Chrome/Edge. */
+          .fuel-freight-table{margin-top:24mm !important;padding-top:2mm !important;}
           .no-print{display:none !important;}
         }
         .report-actions{position:fixed;top:12px;right:18px;z-index:9999;display:flex;gap:8px;}
@@ -1032,7 +1035,7 @@ export default function App() {
           ${fuelCostSVG}
         </div>
       </div>
-      <div class="table-section">
+      <div class="table-section fuel-freight-table">
         <table style="width:100%;">
           <thead><tr><th>MES</th><th>GALONES CARGADOS</th><th>COSTO FLETE (COP)</th></tr></thead>
           <tbody>${fuelFreightRows || `<tr><td colspan="3" style="border:1px solid #ccc;padding:8px;text-align:center;">Sin galones cargados registrados en el período</td></tr>`}</tbody>
