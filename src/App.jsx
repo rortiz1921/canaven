@@ -958,10 +958,12 @@ export default function App() {
         .footer{border-top:1px dashed #aaa;margin-top:32px;padding-top:12px;font-size:10px;break-inside:avoid;page-break-inside:avoid;}
         .sign-line{border-bottom:1px solid #333;width:140px;margin:24px 0 4px;}
         @media print{
-          @page{size:letter portrait;margin:12mm 14mm 18mm;}
+          @page{size:letter portrait;margin:32mm 14mm 18mm;}
           html,body{width:100%;margin:0 !important;}
-          body{padding:20mm 0 30px !important;}
-          .header{position:fixed !important;top:0 !important;left:14mm !important;right:14mm !important;bottom:auto !important;height:15mm;padding:0 0 3mm;margin:0;border-bottom:2px solid #17365d;box-sizing:border-box;background:#fff;z-index:1000;}
+          body{padding:0 !important;}
+          /* Encabezado fijo repetido; el margen superior de @page reserva espacio real
+             en TODAS las páginas y evita que tablas/gráficas pasen por debajo. */
+          .header{position:fixed !important;top:-20mm !important;left:14mm !important;right:14mm !important;bottom:auto !important;height:15mm;padding:0 0 3mm;margin:0;border-bottom:2px solid #17365d;box-sizing:border-box;background:#fff;z-index:1000;}
           .header img{height:12mm !important;width:auto !important;}
           .header div:last-child{font-size:10pt !important;color:#657386 !important;}
           .table-section,.chart-wrap,.footer{break-inside:avoid;page-break-inside:avoid;}
