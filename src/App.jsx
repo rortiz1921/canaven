@@ -960,6 +960,22 @@ export default function App() {
         tfoot td{font-weight:bold;background:#f0f0f0;border:1px solid #ccc;padding:6px 12px;text-align:center;}
         /* Mantiene el título y su tabla juntos; si no caben, pasan completos a la siguiente hoja. */
         .table-section{break-inside:avoid;page-break-inside:avoid;margin:0 0 16px;}
+        /* Estilo corporativo para las tablas del informe */
+        .table-section table:not(.calendar-table){width:100%;border-collapse:collapse;}
+        .table-section table:not(.calendar-table) thead th{
+          background:#294b68;color:#fff;border:1px solid #294b68;
+          padding:7px 10px;text-align:center;font-weight:700;
+        }
+        .table-section table:not(.calendar-table) tbody tr:nth-child(even) td{
+          background:#eef3f7;
+        }
+        .table-section table:not(.calendar-table) tbody tr:nth-child(odd) td{
+          background:#fff;
+        }
+        .table-section table:not(.calendar-table) tfoot td{
+          background:#dce6ef;color:#20394f;font-weight:800;
+          border:1px solid #c4d1dc;padding:7px 10px;
+        }
         .obs-section{break-inside:avoid;page-break-inside:avoid;}
         .obs-item{margin:4px 0;font-size:10px;}
         .footer{border-top:1px dashed #aaa;margin-top:32px;padding-top:12px;font-size:10px;break-inside:avoid;page-break-inside:avoid;}
@@ -975,6 +991,31 @@ export default function App() {
           .header div:last-child{font-size:10pt !important;color:#657386 !important;}
           .table-section,.chart-wrap,.footer{break-inside:avoid;page-break-inside:avoid;}
           .fuel-freight-table{margin-top:6mm !important;padding-top:0 !important;}
+          /* Conservar fondos y colores en todas las tablas al imprimir o guardar PDF. */
+          .table-section table:not(.calendar-table),
+          .table-section table:not(.calendar-table) thead,
+          .table-section table:not(.calendar-table) tbody,
+          .table-section table:not(.calendar-table) tr,
+          .table-section table:not(.calendar-table) th,
+          .table-section table:not(.calendar-table) td,
+          .table-section table:not(.calendar-table) tfoot,
+          .table-section table:not(.calendar-table) tfoot td,
+          .kpi,.chart-wrap,.calendar-wrap{
+            -webkit-print-color-adjust:exact !important;
+            print-color-adjust:exact !important;
+          }
+          .table-section table:not(.calendar-table) thead th{
+            background:#294b68 !important;background-color:#294b68 !important;color:#fff !important;
+          }
+          .table-section table:not(.calendar-table) tbody tr:nth-child(even) td{
+            background:#eef3f7 !important;background-color:#eef3f7 !important;
+          }
+          .table-section table:not(.calendar-table) tbody tr:nth-child(odd) td{
+            background:#fff !important;background-color:#fff !important;
+          }
+          .table-section table:not(.calendar-table) tfoot td{
+            background:#dce6ef !important;background-color:#dce6ef !important;color:#20394f !important;
+          }
           /* Forzar la impresión de la escala cromática del calendario.
              Chrome puede omitir fondos en PDF si no se solicita reproducción exacta. */
           .calendar-wrap,.calendar-table,.calendar-table td,.calendar-legend,
