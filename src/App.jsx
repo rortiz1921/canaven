@@ -895,7 +895,7 @@ export default function App() {
 
       const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
       <style>
-        @page{size:auto;margin:0;}
+        @page{size:letter portrait;margin:25mm 14mm 18mm;}
         body{font-family:Arial,sans-serif;margin:0;padding:20px 30px 30px;color:#222;font-size:11px;}
         /* Membrete fijo: Chrome lo repite automáticamente en cada página impresa. */
         .header{position:relative;left:auto;right:auto;top:auto;height:72px;display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #1a56c4;padding-bottom:8px;background:#fff;z-index:1000;}
@@ -909,7 +909,7 @@ export default function App() {
         .kpi-value{font-size:19px;font-weight:800;color:#17365d;white-space:nowrap;}
         .kpi-label{font-size:9px;font-weight:700;color:#34445b;margin-top:4px;}
         .kpi-detail{font-size:8px;color:#687789;margin-top:2px;}
-        .report-subtitle{font-size:10px;color:#657386;margin-top:-14px;margin-bottom:12px;}
+        .report-subtitle{font-size:10px;color:#657386;margin-top:4px;margin-bottom:12px;}
         .calendar-wrap{border:1px solid #d9e1ec;border-radius:7px;padding:10px 12px;margin:8px 0 14px;break-inside:avoid;page-break-inside:avoid;}
         .calendar-table{width:100%;table-layout:fixed;border-collapse:separate;border-spacing:2px;font-size:8px;}
         .calendar-table th{background:transparent;color:#64748b;padding:3px 0;font-size:8px;}
@@ -944,8 +944,9 @@ export default function App() {
         .footer{border-top:1px dashed #aaa;margin-top:32px;padding-top:12px;font-size:10px;break-inside:avoid;page-break-inside:avoid;}
         .sign-line{border-bottom:1px solid #333;width:140px;margin:24px 0 4px;}
         @media print{
-          body{padding:0 !important;}
-          .header{position:fixed;top:-20mm;left:0;right:0;height:15mm;padding:0 0 3mm;margin:0;border-bottom:2px solid #17365d;box-sizing:border-box;}
+          @page{size:letter portrait;margin:25mm 14mm 18mm;}
+          html,body{width:100%;margin:0 !important;padding:0 !important;}
+          .header{position:fixed;top:-20mm;left:14mm;right:14mm;height:15mm;padding:0 0 3mm;margin:0;border-bottom:2px solid #17365d;box-sizing:border-box;}
           .header img{height:12mm !important;width:auto !important;}
           .header div:last-child{font-size:10pt !important;color:#657386 !important;}
           .table-section,.chart-wrap,.footer{break-inside:avoid;page-break-inside:avoid;}
@@ -965,7 +966,7 @@ export default function App() {
         </div>
         <div style="text-align:right;font-size:10px;color:#657386;">Informe operativo · ${reportDate}</div>
       </div>
-      <div style="display:flex;justify-content:space-between;align-items:flex-end;margin:12px 0 2px;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin:12px 0 2px;gap:18px;">
         <div><div style="font-size:22px;font-weight:900;color:#17365d;letter-spacing:.4px;">INFORME OPERATIVO</div>
         <div class="report-subtitle">Transporte de producto — seguimiento de cargues</div></div>
         <div style="text-align:right;font-size:9px;color:#657386;">PERÍODO ANALIZADO<br/><strong style="font-size:11px;color:#17365d;">${fromLabel} – ${toLabel}</strong></div>
