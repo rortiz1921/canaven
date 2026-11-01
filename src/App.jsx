@@ -682,7 +682,7 @@ export default function App() {
       const chartW = svgW - padL - padR;
       const chartH2 = svgH - padT - padB;
 
-      const buildSVGBars = (dataArr, color, valueFormatter = value => String(value)) => {
+      const buildSVGBars = (dataArr, color, valueFormatter = value => String(value), axisFormatter = valueFormatter) => {
         if (dataArr.length === 0) return `<svg width="${svgW}" height="${svgH}"><text x="${svgW/2}" y="${svgH/2}" text-anchor="middle" fill="#999" font-size="13">Sin datos</text></svg>`;
         const maxV = Math.max(...dataArr.map(d => d.val), 1);
         const bW = Math.min(36, Math.floor(chartW / dataArr.length) - 4);
@@ -693,7 +693,7 @@ export default function App() {
         yLines.forEach(v => {
           const y = padT + chartH2 - Math.round((v/maxV)*chartH2);
           svg += `<line x1="${padL}" y1="${y}" x2="${svgW-padR}" y2="${y}" stroke="#ddd" stroke-width="1"/>`;
-          svg += `<text x="${padL-4}" y="${y+4}" text-anchor="end" font-size="8" fill="#999">${valueFormatter(v)}</text>`;
+          svg += `<text x="${padL-4}" y="${y+4}" text-anchor="end" font-size="8" fill="#999">${axisFormatter(v)}</text>`;
         });
         // X axis
         svg += `<line x1="${padL}" y1="${padT+chartH2}" x2="${svgW-padR}" y2="${padT+chartH2}" stroke="#999" stroke-width="1.5"/>`;
@@ -742,8 +742,8 @@ export default function App() {
         .map(([,v]) => v);
 
       // Build charts only after monthlyArr has been created
-      const dailySVG = buildSVGBars(days.map(d => ({ val: d.cargados, label: d.label })), "#1a56c4");
-      const monthlySVG = buildSVGBars(monthlyArr.map(m => ({ val: m.total, label: m.label })), "#b5c832");
+      const dailySVG = buildSVGBars(days.map(d => ({ val: d.cargados, label: d.label })), "#7894B8");
+      const monthlySVG = buildSVGBars(monthlyArr.map(m => ({ val: m.total, label: m.label })), "#A8B58A");
 
       // Comparativo de galones y costo de flete de los últimos seis meses
       // tomando como referencia el último mes del período seleccionado en el PDF.
@@ -777,12 +777,14 @@ export default function App() {
         .sort(([a],[b]) => a.localeCompare(b))
         .map(([,v]) => v);
       const fuelGallonsSVG = buildSVGBars(
-        fuelFreightArr.map(m => ({ val: Math.round(m.galones), label: m.label })),
-        "#16a34a"
+        fuelFreightArr.map(m => ({ val: m.galones, label: m.label })),
+        "#7297AD",
+        value => Number(value).toLocaleString("es-CO", { minimumFractionDigits:2, maximumFractionDigits:2 }),
+        value => Math.round(value).toLocaleString("es-CO")
       );
       const fuelCostSVG = buildSVGBars(
         fuelFreightArr.map(m => ({ val: Math.round(m.costo), label: m.label })),
-        "#ea580c",
+        "#A87963",
         value => "$" + Math.round(value).toLocaleString("es-CO")
       );
       const fuelFreightTotalGallons = fuelFreightArr.reduce((sum, m) => sum + m.galones, 0);
@@ -819,10 +821,10 @@ export default function App() {
           <td style="padding:5px 8px;width:100%;">
             <svg width="200" height="14" xmlns="http://www.w3.org/2000/svg">
               <rect x="0" y="0" width="200" height="14" fill="#eeeeee" rx="3"/>
-              <rect x="0" y="0" width="${barWidth}" height="14" fill="#1a56c4" rx="3"/>
+              <rect x="0" y="0" width="${barWidth}" height="14" fill="#7894B8" rx="3"/>
             </svg>
           </td>
-          <td style="padding:5px 8px;font-size:10px;font-weight:bold;color:#1a56c4;white-space:nowrap;">${v.loaded} cargues</td>
+          <td style="padding:5px 8px;font-size:10px;font-weight:bold;color:#607D9B;white-space:nowrap;">${v.loaded} cargues</td>
         </tr>`;
       }).join("");
 
