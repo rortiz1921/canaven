@@ -684,18 +684,19 @@ export default function App() {
 
       const buildSVGBars = (dataArr, color, valueFormatter = value => String(value), options = {}) => {
         const custom = options && options.compactSixMonths;
-        const W = custom ? 620 : svgW;
-        const H = custom ? 230 : svgH;
-        const L = custom ? 58 : padL;
-        const R = custom ? 12 : padR;
-        const T = custom ? 34 : padT;
-        const B = custom ? 38 : padB;
+        const wide = options && options.wide;
+        const W = (custom || wide) ? 760 : svgW;
+        const H = custom ? 250 : (wide ? 235 : svgH);
+        const L = custom ? 76 : (wide ? 48 : padL);
+        const R = (custom || wide) ? 18 : padR;
+        const T = custom ? 40 : (wide ? 26 : padT);
+        const B = custom ? 54 : (wide ? 70 : padB);
         const plotW = W - L - R;
         const plotH = H - T - B;
         const axisFormatter = options.axisFormatter || valueFormatter;
         if (dataArr.length === 0) return `<svg width="100%" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg"><text x="${W/2}" y="${H/2}" text-anchor="middle" fill="#999" font-size="13">Sin datos</text></svg>`;
         const maxV = Math.max(...dataArr.map(d => d.val), 1);
-        const bW = custom ? Math.min(48, Math.floor(plotW / dataArr.length) * 0.58) : Math.min(36, Math.floor(plotW / dataArr.length) - 4);
+        const bW = custom ? Math.min(66, Math.floor(plotW / dataArr.length) * 0.52) : Math.min(wide ? 42 : 36, Math.floor(plotW / dataArr.length) - 4);
         const gap = (plotW - bW * dataArr.length) / (dataArr.length + 1);
         const yLines = [0, 0.25, 0.5, 0.75, 1].map(p => Math.round(maxV * p));
         let svg = `<svg width="100%" height="auto" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg" style="font-family:Arial,sans-serif;display:block;">`;
@@ -710,10 +711,10 @@ export default function App() {
           const bH = Math.max(2, Math.round((d.val / maxV) * plotH));
           const y = T + plotH - bH;
           svg += `<rect x="${x}" y="${y}" width="${bW}" height="${bH}" fill="${color}" rx="4"/>`;
-          svg += `<text x="${x + bW/2}" y="${Math.max(14,y - 7)}" text-anchor="middle" font-size="${custom ? 10 : 8}" font-weight="700" fill="#334155">${valueFormatter(d.val)}</text>`;
-          const lx = x + bW/2; const ly = T + plotH + (custom ? 23 : 8);
-          if (custom) svg += `<text x="${lx}" y="${ly}" text-anchor="middle" font-size="11" font-weight="600" fill="#526174">${d.label}</text>`;
-          else svg += `<text transform="rotate(-40,${lx},${ly})" x="${lx}" y="${ly}" text-anchor="end" font-size="7.5" fill="#666">${d.label}</text>`;
+          svg += `<text x="${x + bW/2}" y="${Math.max(14,y - 7)}" text-anchor="middle" font-size="${custom ? 11 : (wide ? 8.5 : 8)}" font-weight="700" fill="#334155">${valueFormatter(d.val)}</text>`;
+          const lx = x + bW/2; const ly = T + plotH + (custom ? 29 : 9);
+          if (custom) svg += `<text x="${lx}" y="${ly}" text-anchor="middle" font-size="12" font-weight="600" fill="#526174">${d.label}</text>`;
+          else svg += `<text transform="rotate(-40,${lx},${ly})" x="${lx}" y="${ly}" text-anchor="end" font-size="${wide ? 8 : 7.5}" fill="#667085">${d.label}</text>`;
         });
         svg += `</svg>`;
         return svg;
@@ -749,8 +750,8 @@ export default function App() {
         .map(([,v]) => v);
 
       // Build charts only after monthlyArr has been created
-      const dailySVG = buildSVGBars(days.map(d => ({ val: d.cargados, label: d.label })), "#1a56c4");
-      const monthlySVG = buildSVGBars(monthlyArr.map(m => ({ val: m.total, label: m.label })), "#b5c832");
+      const dailySVG = buildSVGBars(days.map(d => ({ val: d.cargados, label: d.label })), "#7895A8", value => String(value), { wide: true });
+      const monthlySVG = buildSVGBars(monthlyArr.map(m => ({ val: m.total, label: m.label })), "#8FA99B", value => String(value), { wide: true });
 
       // Comparativo de galones y costo de flete de los últimos seis meses
       // tomando como referencia el último mes del período seleccionado en el PDF.
@@ -785,13 +786,13 @@ export default function App() {
         .map(([,v]) => v);
       const fuelGallonsSVG = buildSVGBars(
         fuelFreightArr.map(m => ({ val: m.galones, label: m.label })),
-        "#66869A",
+        "#7895A8",
         value => value.toLocaleString("es-CO", { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
         { compactSixMonths: true, axisFormatter: value => Math.round(value).toLocaleString("es-CO") }
       );
       const fuelCostSVG = buildSVGBars(
         fuelFreightArr.map(m => ({ val: m.costo, label: m.label })),
-        "#B58A68",
+        "#A7B5A8",
         value => "$" + Math.round(value).toLocaleString("es-CO"),
         { compactSixMonths: true, axisFormatter: value => (value / 1000000).toLocaleString("es-CO", { maximumFractionDigits: 1 }) + " M" }
       );
@@ -935,10 +936,12 @@ export default function App() {
         .cal-9{background:#102f5b;color:#fff;}
         .calendar-legend{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:9px 2px 0;color:#64748b;font-size:9px;}
         .calendar-legend span{display:flex;align-items:center;gap:4px;} .calendar-legend i{display:inline-block;width:13px;height:10px;border-radius:2px;}
-        .fuel-charts{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:stretch;width:100%;}
-        .fuel-charts .chart-wrap{min-width:0;margin:6px 0;padding:10px 8px;overflow:visible;}
-        .fuel-charts .chart-title{font-size:10px;margin-bottom:8px;white-space:nowrap;}
+        .fuel-charts{display:flex;flex-direction:column;align-items:center;gap:10px;width:100%;}
+        .fuel-charts .chart-wrap{width:100%;max-width:760px;min-width:0;box-sizing:border-box;margin:6px auto;padding:12px 14px;overflow:visible;}
+        .fuel-charts .chart-title{font-size:11px;margin-bottom:8px;white-space:normal;text-align:center;}
         .fuel-charts svg{display:block;width:100%;height:auto;overflow:visible;}
+        .primary-chart{width:100%;max-width:760px;box-sizing:border-box;margin:10px auto;}
+        .primary-chart svg{display:block;width:100%;height:auto;overflow:visible;}
         .chart-wrap{border:1px solid #ddd;border-radius:6px;padding:12px;margin:10px 0;break-inside:avoid;page-break-inside:avoid;}
         .chart-title{text-align:center;font-weight:bold;font-size:12px;margin-bottom:12px;}
         .bars{display:flex;align-items:flex-end;justify-content:center;gap:2px;height:200px;border-bottom:2px solid #999;}
@@ -996,7 +999,7 @@ export default function App() {
       <div class="item">4. Comunicación con personal de Canacol para cumplir la programación.</div>
       <div class="item">5. Reunión con propietarios sobre facturación y pagos.</div>
       <p class="section-title">2. CARGUES DIARIOS DEL PERÍODO</p>
-      <div class="chart-wrap">
+      <div class="chart-wrap primary-chart">
         <div class="chart-title">CARGUES POR DÍA</div>
         ${dailySVG}
         <div style="text-align:center;margin-top:4px;font-size:9px;color:#555;">■ CARGUES</div>
@@ -1010,7 +1013,7 @@ export default function App() {
         </table>
       </div>
       <p class="section-title">4. COMPARATIVO MENSUAL DE CARGUES</p>
-      <div class="chart-wrap">
+      <div class="chart-wrap primary-chart">
         <div class="chart-title">CARGUES POR MES</div>
         ${monthlySVG}
         <div style="text-align:center;margin-top:4px;font-size:9px;color:#555;">■ TOTAL CARGUES POR MES</div>
