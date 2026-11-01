@@ -682,39 +682,31 @@ export default function App() {
       const chartW = svgW - padL - padR;
       const chartH2 = svgH - padT - padB;
 
-      const buildSVGBars = (dataArr, color, valueFormatter = value => String(value), options = {}) => {
-        const custom = options && options.compactSixMonths;
-        const wide = options && options.wide;
-        const W = (custom || wide) ? 760 : svgW;
-        const H = custom ? 250 : (wide ? 235 : svgH);
-        const L = custom ? 76 : (wide ? 48 : padL);
-        const R = (custom || wide) ? 18 : padR;
-        const T = custom ? 40 : (wide ? 26 : padT);
-        const B = custom ? 54 : (wide ? 70 : padB);
-        const plotW = W - L - R;
-        const plotH = H - T - B;
-        const axisFormatter = options.axisFormatter || valueFormatter;
-        if (dataArr.length === 0) return `<svg width="100%" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg"><text x="${W/2}" y="${H/2}" text-anchor="middle" fill="#999" font-size="13">Sin datos</text></svg>`;
+      const buildSVGBars = (dataArr, color) => {
+        if (dataArr.length === 0) return `<svg width="${svgW}" height="${svgH}"><text x="${svgW/2}" y="${svgH/2}" text-anchor="middle" fill="#999" font-size="13">Sin datos</text></svg>`;
         const maxV = Math.max(...dataArr.map(d => d.val), 1);
-        const bW = custom ? Math.min(66, Math.floor(plotW / dataArr.length) * 0.52) : Math.min(wide ? 42 : 36, Math.floor(plotW / dataArr.length) - 4);
-        const gap = (plotW - bW * dataArr.length) / (dataArr.length + 1);
+        const bW = Math.min(36, Math.floor(chartW / dataArr.length) - 4);
+        const gap = (chartW - bW * dataArr.length) / (dataArr.length + 1);
         const yLines = [0, 0.25, 0.5, 0.75, 1].map(p => Math.round(maxV * p));
-        let svg = `<svg width="100%" height="auto" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg" style="font-family:Arial,sans-serif;display:block;">`;
+        let svg = `<svg width="${svgW}" height="${svgH}" xmlns="http://www.w3.org/2000/svg" style="font-family:Arial,sans-serif;">`;
+        // Grid lines
         yLines.forEach(v => {
-          const y = T + plotH - Math.round((v/maxV)*plotH);
-          svg += `<line x1="${L}" y1="${y}" x2="${W-R}" y2="${y}" stroke="#e5eaf0" stroke-width="1"/>`;
-          svg += `<text x="${L-7}" y="${y+4}" text-anchor="end" font-size="${custom ? 10 : 8}" fill="#718096">${axisFormatter(v)}</text>`;
+          const y = padT + chartH2 - Math.round((v/maxV)*chartH2);
+          svg += `<line x1="${padL}" y1="${y}" x2="${svgW-padR}" y2="${y}" stroke="#ddd" stroke-width="1"/>`;
+          svg += `<text x="${padL-4}" y="${y+4}" text-anchor="end" font-size="9" fill="#999">${v}</text>`;
         });
-        svg += `<line x1="${L}" y1="${T+plotH}" x2="${W-R}" y2="${T+plotH}" stroke="#aab6c4" stroke-width="1.2"/>`;
+        // X axis
+        svg += `<line x1="${padL}" y1="${padT+chartH2}" x2="${svgW-padR}" y2="${padT+chartH2}" stroke="#999" stroke-width="1.5"/>`;
+        // Bars
         dataArr.forEach((d, i) => {
-          const x = L + gap + i * (bW + gap);
-          const bH = Math.max(2, Math.round((d.val / maxV) * plotH));
-          const y = T + plotH - bH;
-          svg += `<rect x="${x}" y="${y}" width="${bW}" height="${bH}" fill="${color}" rx="4"/>`;
-          svg += `<text x="${x + bW/2}" y="${Math.max(14,y - 7)}" text-anchor="middle" font-size="${custom ? 11 : (wide ? 8.5 : 8)}" font-weight="700" fill="#334155">${valueFormatter(d.val)}</text>`;
-          const lx = x + bW/2; const ly = T + plotH + (custom ? 29 : 9);
-          if (custom) svg += `<text x="${lx}" y="${ly}" text-anchor="middle" font-size="12" font-weight="600" fill="#526174">${d.label}</text>`;
-          else svg += `<text transform="rotate(-40,${lx},${ly})" x="${lx}" y="${ly}" text-anchor="end" font-size="${wide ? 8 : 7.5}" fill="#667085">${d.label}</text>`;
+          const x = padL + gap + i * (bW + gap);
+          const bH = Math.max(2, Math.round((d.val / maxV) * chartH2));
+          const y = padT + chartH2 - bH;
+          svg += `<rect x="${x}" y="${y}" width="${bW}" height="${bH}" fill="${color}" rx="2"/>`;
+          svg += `<text x="${x + bW/2}" y="${y - 3}" text-anchor="middle" font-size="9" font-weight="bold" fill="#333">${d.val}</text>`;
+          // Label rotated
+          const lx = x + bW/2; const ly = padT + chartH2 + 8;
+          svg += `<text transform="rotate(-40,${lx},${ly})" x="${lx}" y="${ly}" text-anchor="end" font-size="7.5" fill="#666">${d.label}</text>`;
         });
         svg += `</svg>`;
         return svg;
@@ -750,8 +742,8 @@ export default function App() {
         .map(([,v]) => v);
 
       // Build charts only after monthlyArr has been created
-      const dailySVG = buildSVGBars(days.map(d => ({ val: d.cargados, label: d.label })), "#7895A8", value => String(value), { wide: true });
-      const monthlySVG = buildSVGBars(monthlyArr.map(m => ({ val: m.total, label: m.label })), "#8FA99B", value => String(value), { wide: true });
+      const dailySVG = buildSVGBars(days.map(d => ({ val: d.cargados, label: d.label })), "#1a56c4");
+      const monthlySVG = buildSVGBars(monthlyArr.map(m => ({ val: m.total, label: m.label })), "#b5c832");
 
       // Comparativo de galones y costo de flete de los últimos seis meses
       // tomando como referencia el último mes del período seleccionado en el PDF.
@@ -785,16 +777,12 @@ export default function App() {
         .sort(([a],[b]) => a.localeCompare(b))
         .map(([,v]) => v);
       const fuelGallonsSVG = buildSVGBars(
-        fuelFreightArr.map(m => ({ val: m.galones, label: m.label })),
-        "#7895A8",
-        value => value.toLocaleString("es-CO", { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
-        { compactSixMonths: true, axisFormatter: value => Math.round(value).toLocaleString("es-CO") }
+        fuelFreightArr.map(m => ({ val: Math.round(m.galones), label: m.label })),
+        "#16a34a"
       );
       const fuelCostSVG = buildSVGBars(
-        fuelFreightArr.map(m => ({ val: m.costo, label: m.label })),
-        "#A7B5A8",
-        value => "$" + Math.round(value).toLocaleString("es-CO"),
-        { compactSixMonths: true, axisFormatter: value => (value / 1000000).toLocaleString("es-CO", { maximumFractionDigits: 1 }) + " M" }
+        fuelFreightArr.map(m => ({ val: Math.round(m.costo), label: m.label })),
+        "#ea580c"
       );
       const fuelFreightTotalGallons = fuelFreightArr.reduce((sum, m) => sum + m.galones, 0);
       const fuelFreightTotalCost = fuelFreightArr.reduce((sum, m) => sum + m.costo, 0);
@@ -824,16 +812,16 @@ export default function App() {
       const maxVehicleLoaded = Math.max(...vehicleAvailData.map(v => v.loaded), 1);
 
       const availBarsHtml = vehicleAvailData.map(v => {
-        const barWidth = Math.round((v.loaded / maxVehicleLoaded) * 150);
+        const barWidth = Math.round((v.loaded / maxVehicleLoaded) * 200);
         return `<tr>
-          <td style="padding:2px 5px;font-weight:bold;font-size:8px;white-space:nowrap;">${v.plate}</td>
-          <td style="padding:2px 5px;width:100%;">
-            <svg width="150" height="10" xmlns="http://www.w3.org/2000/svg">
-              <rect x="0" y="0" width="150" height="10" fill="#edf1f5" rx="3"/>
-              <rect x="0" y="0" width="${barWidth}" height="10" fill="#66869A" rx="3"/>
+          <td style="padding:5px 8px;font-weight:bold;font-size:10px;white-space:nowrap;">${v.plate}</td>
+          <td style="padding:5px 8px;width:100%;">
+            <svg width="200" height="14" xmlns="http://www.w3.org/2000/svg">
+              <rect x="0" y="0" width="200" height="14" fill="#eeeeee" rx="3"/>
+              <rect x="0" y="0" width="${barWidth}" height="14" fill="#1a56c4" rx="3"/>
             </svg>
           </td>
-          <td style="padding:2px 5px;font-size:8px;font-weight:bold;color:#526b7d;white-space:nowrap;">${v.loaded} cargues</td>
+          <td style="padding:5px 8px;font-size:10px;font-weight:bold;color:#1a56c4;white-space:nowrap;">${v.loaded} cargues</td>
         </tr>`;
       }).join("");
 
@@ -841,28 +829,6 @@ export default function App() {
         `<tr><td style="border:1px solid #ccc;padding:6px 12px;text-align:center;">${day.label}</td>
          <td style="border:1px solid #ccc;padding:6px 12px;text-align:center;font-weight:bold;">${day.cargados}</td></tr>`
       ).join("");
-
-      // Calendario diario anual: desde enero hasta el mes final del período del informe.
-      // Cada celda muestra los vehículos cargados y usa intensidad de color según cantidad.
-      const calendarEnd = new Date(to.getFullYear(), to.getMonth(), 1, 12);
-      const calendarMonths = [];
-      for (let month = 0; month <= calendarEnd.getMonth(); month++) {
-        const firstDay = new Date(to.getFullYear(), month, 1, 12);
-        const daysInMonth = new Date(to.getFullYear(), month + 1, 0).getDate();
-        const cells = [];
-        let monthTotal = 0;
-        for (let day = 1; day <= 31; day++) {
-          if (day > daysInMonth) { cells.push(`<td class="cal-empty"></td>`); continue; }
-          const dateKey = `${to.getFullYear()}-${String(month + 1).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
-          const count = (schedules[dateKey] || []).filter(v => v.loaded).length;
-          monthTotal += count;
-          const shade = count === 0 ? "cal-zero" : count <= 2 ? "cal-1" : count === 3 ? "cal-3" : count === 4 ? "cal-4" : count === 5 ? "cal-5" : count === 6 ? "cal-6" : count <= 8 ? "cal-7" : "cal-9";
-          cells.push(`<td class="cal-cell ${shade}">${count || ""}</td>`);
-        }
-        calendarMonths.push(`<tr><th class="cal-month">${MONTHS_ES[month].slice(0,3)}</th>${cells.join("")}<th class="cal-total">${monthTotal.toLocaleString("es-CO")}</th></tr>`);
-      }
-      const calendarDaysHeader = Array.from({length:31}, (_,i) => `<th class="cal-day">${i+1}</th>`).join("");
-      const calendarHTML = `<div class="calendar-wrap"><table class="calendar-table"><thead><tr><th></th>${calendarDaysHeader}<th></th></tr></thead><tbody>${calendarMonths.join("")}</tbody></table><div class="calendar-legend"><span><i class="cal-1"></i>1–2</span><span><i class="cal-3"></i>3</span><span><i class="cal-4"></i>4</span><span><i class="cal-5"></i>5</span><span><i class="cal-6"></i>6</span><span><i class="cal-7"></i>7–8</span><span><i class="cal-9"></i>9–10</span><span><i class="cal-zero"></i>Sin cargue</span></div></div>`;
 
       // Cantidad de viajes por destino para el rango del informe
       const destinationMap = {};
@@ -886,27 +852,9 @@ export default function App() {
       const destinationTotalProgramados = Object.values(destinationMap).reduce((s,v) => s + v.programados, 0);
       const destinationTotalCargados = Object.values(destinationMap).reduce((s,v) => s + v.cargados, 0);
 
-      // Indicadores ejecutivos: siempre corresponden exclusivamente al rango Desde/Hasta.
-      let periodGallons = 0;
-      let periodFreight = 0;
-      const activeDays = days.length;
-      Object.entries(schedules).forEach(([date, ds]) => {
-        const dt = new Date(date + "T12:00:00");
-        if (dt < from || dt > to) return;
-        (ds || []).forEach(v => {
-          if (!v.loaded) return;
-          periodGallons += parseReportNumber(v.cantidadGalones);
-          periodFreight += parseReportNumber(v.costoViaje);
-        });
-      });
-      const compliance = destinationTotalProgramados > 0
-        ? (destinationTotalCargados / destinationTotalProgramados * 100) : 0;
-      const averagePerDay = activeDays > 0 ? total / activeDays : 0;
-      const kpi = (value, label, detail) => `<div class="kpi"><div class="kpi-value">${value}</div><div class="kpi-label">${label}</div><div class="kpi-detail">${detail || ""}</div></div>`;
-
       const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
       <style>
-        @page{size:letter portrait;margin:25mm 14mm 18mm;}
+        @page{size:auto;margin:0;}
         body{font-family:Arial,sans-serif;margin:0;padding:20px 30px 30px;color:#222;font-size:11px;}
         /* Membrete fijo: Chrome lo repite automáticamente en cada página impresa. */
         .header{position:relative;left:auto;right:auto;top:auto;height:72px;display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #1a56c4;padding-bottom:8px;background:#fff;z-index:1000;}
@@ -915,34 +863,7 @@ export default function App() {
         h2{text-align:center;font-size:13px;font-weight:bold;letter-spacing:1px;margin:0 0 20px;}
         .section-title{font-weight:bold;font-size:11px;margin:16px 0 6px;}
         .item{margin:3px 0 3px 20px;font-size:10px;}
-        .kpi-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin:12px 0 18px;break-inside:avoid;page-break-inside:avoid;}
-        .kpi{background:#f2f5fa;border-top:3px solid #1a56c4;border-radius:5px;padding:10px 9px;min-height:62px;}
-        .kpi-value{font-size:19px;font-weight:800;color:#17365d;white-space:nowrap;}
-        .kpi-label{font-size:9px;font-weight:700;color:#34445b;margin-top:4px;}
-        .kpi-detail{font-size:8px;color:#687789;margin-top:2px;}
-        .report-subtitle{font-size:10px;color:#657386;margin-top:4px;margin-bottom:12px;}
-        .calendar-wrap{border:1px solid #d9e1ec;border-radius:7px;padding:10px 12px;margin:8px 0 14px;break-inside:avoid;page-break-inside:avoid;}
-        .calendar-table{width:100%;table-layout:fixed;border-collapse:separate;border-spacing:2px;font-size:8px;}
-        .calendar-table th{background:transparent;color:#64748b;padding:3px 0;font-size:8px;}
-        .calendar-table .cal-month{width:34px;text-align:left;font-size:9px;color:#243b5a;font-weight:800;}
-        .calendar-table .cal-day{font-weight:500;}
-        .calendar-table .cal-total{width:30px;color:#17365d;font-size:9px;font-weight:800;}
-        .calendar-table td{height:18px;text-align:center;border-radius:3px;padding:0;font-size:8px;font-weight:700;}
-        .calendar-table .cal-empty{background:transparent;}
-        .cal-zero{background:#f1f3f6;color:#aab3bf;border:1px solid #e1e5eb;}
-        .cal-1{background:#e7f0fb;color:#24415f;} .cal-3{background:#c9dcf5;color:#24415f;}
-        .cal-4{background:#9fc2ed;color:#17365d;} .cal-5{background:#6ea0df;color:#fff;}
-        .cal-6{background:#3d7fd0;color:#fff;} .cal-7{background:#205ca8;color:#fff;}
-        .cal-9{background:#102f5b;color:#fff;}
-        .calendar-legend{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:9px 2px 0;color:#64748b;font-size:9px;}
-        .calendar-legend span{display:flex;align-items:center;gap:4px;} .calendar-legend i{display:inline-block;width:13px;height:10px;border-radius:2px;}
-        .fuel-charts{display:flex;flex-direction:column;align-items:center;gap:10px;width:100%;}
-        .fuel-charts .chart-wrap{width:100%;max-width:760px;min-width:0;box-sizing:border-box;margin:6px auto;padding:12px 14px;overflow:visible;}
-        .fuel-charts .chart-title{font-size:11px;margin-bottom:8px;white-space:normal;text-align:center;}
-        .fuel-charts svg{display:block;width:100%;height:auto;overflow:visible;}
-        .primary-chart{width:100%;max-width:760px;box-sizing:border-box;margin:10px auto;}
-        .primary-chart svg{display:block;width:100%;height:auto;overflow:visible;}
-        .chart-wrap{border:1px solid #ddd;border-radius:6px;padding:12px;margin:10px 0;break-inside:avoid;page-break-inside:avoid;}
+        .chart-wrap{border:1px solid #ddd;border-radius:4px;padding:16px;margin:12px 0;break-inside:avoid;page-break-inside:avoid;}
         .chart-title{text-align:center;font-weight:bold;font-size:12px;margin-bottom:12px;}
         .bars{display:flex;align-items:flex-end;justify-content:center;gap:2px;height:200px;border-bottom:2px solid #999;}
         table{border-collapse:collapse;margin:0 auto;break-inside:avoid;page-break-inside:avoid;}
@@ -958,11 +879,6 @@ export default function App() {
         .footer{border-top:1px dashed #aaa;margin-top:32px;padding-top:12px;font-size:10px;break-inside:avoid;page-break-inside:avoid;}
         .sign-line{border-bottom:1px solid #333;width:140px;margin:24px 0 4px;}
         @media print{
-          @page{size:letter portrait;margin:25mm 14mm 18mm;}
-          html,body{width:100%;margin:0 !important;padding:0 !important;}
-          .header{position:fixed;top:-20mm;left:14mm;right:14mm;height:15mm;padding:0 0 3mm;margin:0;border-bottom:2px solid #17365d;box-sizing:border-box;}
-          .header img{height:12mm !important;width:auto !important;}
-          .header div:last-child{font-size:10pt !important;color:#657386 !important;}
           .table-section,.chart-wrap,.footer{break-inside:avoid;page-break-inside:avoid;}
           .no-print{display:none !important;}
         }
@@ -978,56 +894,44 @@ export default function App() {
         <div>
           <img src="${CANAVEN_LOGO_SRC}" alt="CANAVEN - Transportes de Colombia SAS" style="height:52px;width:auto;object-fit:contain;display:block;" />
         </div>
-        <div style="text-align:right;font-size:10px;color:#657386;">Informe operativo · ${reportDate}</div>
+        <div style="text-align:right;font-size:10px;color:#555;">Informe generado: ${reportDate}</div>
       </div>
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin:12px 0 2px;gap:18px;">
-        <div><div style="font-size:22px;font-weight:900;color:#17365d;letter-spacing:.4px;">INFORME OPERATIVO</div>
-        <div class="report-subtitle">Transporte de producto — seguimiento de cargues</div></div>
-        <div style="text-align:right;font-size:9px;color:#657386;">PERÍODO ANALIZADO<br/><strong style="font-size:11px;color:#17365d;">${fromLabel} – ${toLabel}</strong></div>
-      </div>
-      <div class="kpi-grid">
-        ${kpi(total.toLocaleString("es-CO"), "VEHÍCULOS CARGADOS", `de ${destinationTotalProgramados.toLocaleString("es-CO")} programados`)}
-        ${kpi(`${compliance.toFixed(1).replace(".",",")} %`, "CUMPLIMIENTO", "cargados / programados")}
-        ${kpi(`${(periodGallons/1000000).toFixed(2).replace(".",",")} M`, "GALONES CARGADOS", "en el período filtrado")}
-        ${kpi(`$ ${(periodFreight/1000000).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ".")} M`, "COSTO TOTAL DE FLETE", "COP en el período filtrado")}
-        ${kpi(averagePerDay.toFixed(1).replace(".",","), "CARGUES POR DÍA", `${activeDays} días con actividad`)}
-      </div>
-      <p class="section-title">1. ACTIVIDADES DEL PERÍODO</p>
-      <div class="item">1. Programación diaria de vehículos.</div>
-      <div class="item">2. Seguimiento GPS para asegurar los vehículos programados.</div>
-      <div class="item">3. Solicitud de documentos operativos a los propietarios.</div>
-      <div class="item">4. Comunicación con personal de Canacol para cumplir la programación.</div>
-      <div class="item">5. Reunión con propietarios sobre facturación y pagos.</div>
-      <p class="section-title">2. CARGUES DIARIOS DEL PERÍODO</p>
-      <div class="chart-wrap primary-chart">
+      <h2>INFORME OPERATIVO</h2>
+      <p><strong>1. FECHA:</strong> ${reportDate}</p>
+      <p class="section-title">2. ACTIVIDADES:</p>
+      <div class="item">1. Programación de vehículos diarios.</div>
+      <div class="item">2. Seguimiento de GPS para asegurar cantidad de vehículos programados</div>
+      <div class="item">3. Solicitud de documentos operativos a los propietarios</div>
+      <div class="item">4. Comunicación con personal de Canacol para asegurar la actividad y cumplir la programación.</div>
+      <div class="item">5. Reunión propietarios temas de facturación y pagos.</div>
+      <p class="section-title">3. INDICADORES: cargue de vehículos del ${fromLabel} al ${toLabel}</p>
+      <div class="chart-wrap">
         <div class="chart-title">CARGUES POR DÍA</div>
         ${dailySVG}
         <div style="text-align:center;margin-top:4px;font-size:9px;color:#555;">■ CARGUES</div>
       </div>
       <div class="table-section">
-        <p class="section-title">3. VIAJES POR DESTINO</p>
+        <p class="section-title">4. CANTIDAD DE VIAJES POR DESTINO</p>
         <table style="width:100%;">
           <thead><tr><th>DESTINO</th><th>PROGRAMADOS</th><th>CARGADOS</th></tr></thead>
           <tbody>${destinationRows || `<tr><td colspan="3" style="border:1px solid #ccc;padding:8px;text-align:center;">Sin viajes registrados en el período</td></tr>`}</tbody>
           <tfoot><tr><td>TOTAL</td><td>${destinationTotalProgramados}</td><td>${destinationTotalCargados}</td></tr></tfoot>
         </table>
       </div>
-      <p class="section-title">4. COMPARATIVO MENSUAL DE CARGUES</p>
-      <div class="chart-wrap primary-chart">
+      <p class="section-title">5. COMPARATIVO MENSUAL DE CARGUES</p>
+      <div class="chart-wrap">
         <div class="chart-title">CARGUES POR MES</div>
         ${monthlySVG}
         <div style="text-align:center;margin-top:4px;font-size:9px;color:#555;">■ TOTAL CARGUES POR MES</div>
       </div>
-      <p class="section-title">5. GALONES CARGADOS Y COSTO TOTAL DEL FLETE — ÚLTIMOS SEIS MESES</p>
-      <div class="fuel-charts">
-        <div class="chart-wrap">
-          <div class="chart-title">GALONES CARGADOS POR MES</div>
-          ${fuelGallonsSVG}
-        </div>
-        <div class="chart-wrap">
-          <div class="chart-title">COSTO TOTAL DE FLETE POR MES (COP)</div>
-          ${fuelCostSVG}
-        </div>
+      <p class="section-title">6. GALONES CARGADOS Y COSTO DE FLETE — ÚLTIMOS SEIS MESES</p>
+      <div class="chart-wrap">
+        <div class="chart-title">GALONES CARGADOS POR MES (SOLO VIAJES CARGADOS)</div>
+        ${fuelGallonsSVG}
+      </div>
+      <div class="chart-wrap">
+        <div class="chart-title">COSTO TOTAL DE FLETE POR MES (COP)</div>
+        ${fuelCostSVG}
       </div>
       <div class="table-section">
         <table style="width:100%;">
@@ -1037,16 +941,19 @@ export default function App() {
         </table>
       </div>
       <div class="table-section">
-        <p class="section-title">6. DETALLE DIARIO DE CARGUES — ${to.getFullYear()} (ENERO A ${MONTHS_ES[to.getMonth()].toUpperCase()})</p>
-        <div style="font-size:9px;color:#64748b;margin-bottom:6px;">Cada celda muestra los vehículos cargados en ese día. El color representa la cantidad de cargues; al final de cada fila aparece el total mensual.</div>
-        ${calendarHTML}
+        <p class="section-title">7. INDICADOR: DEL ${fromLabel.toUpperCase()} A ${toLabel.toUpperCase()}</p>
+        <table>
+          <thead><tr><th>DIA</th><th>VIAJES</th></tr></thead>
+          <tbody>${tableRows}</tbody>
+          <tfoot><tr><td>TOTAL</td><td>${total}</td></tr></tfoot>
+        </table>
       </div>
       <div class="table-section">
-        <p class="section-title">7. CARGUES REALIZADOS POR VEHÍCULO</p>
-        <div class="chart-wrap" style="padding:6px 8px;margin:5px 0;">
-        <div class="chart-title" style="font-size:10px;margin-bottom:5px;">CANTIDAD DE CARGUES POR VEHÍCULO</div>
+        <p class="section-title">8. CARGUES REALIZADOS POR VEHÍCULO</p>
+        <div class="chart-wrap" style="padding:12px;">
+        <div class="chart-title">CANTIDAD DE CARGUES POR VEHÍCULO</div>
         <table style="width:100%;border-collapse:collapse;">
-          <tbody>${availBarsHtml || `<tr><td colspan="3" style="padding:5px;text-align:center;color:#666;">Sin cargues registrados en el período</td></tr>`}</tbody>
+          <tbody>${availBarsHtml || `<tr><td colspan="3" style="padding:8px;text-align:center;color:#666;">Sin cargues registrados en el período</td></tr>`}</tbody>
           <tfoot>
             <tr>
               <td colspan="3" style="padding:6px 8px;font-size:10px;color:#666;border-top:1px solid #ddd;">
@@ -1058,7 +965,7 @@ export default function App() {
         </div>
       </div>
       <div class="obs-section">
-        <p class="section-title">8. OBSERVACIONES</p>
+        <p class="section-title">9. OBSERVACIONES:</p>
       ${(pdfObs || `Promedio de cargues por día: ${days.length > 0 ? (total/days.length).toFixed(1) : 0} viajes.`).split("\n").map(l => `<div class="obs-item">• ${l}</div>`).join("")}
       </div>
       <div class="footer">
